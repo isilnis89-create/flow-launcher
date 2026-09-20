@@ -8,6 +8,9 @@ import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.drawable.AdaptiveIconDrawable;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
@@ -78,7 +81,7 @@ public final class LauncherRepository {
 
                 Bitmap icon = null;
                 try {
-                    icon = drawableToBitmap(info.loadIcon(pm), size);
+                    icon = minimalIcon(info.loadIcon(pm), size);
                 } catch (Throwable ignored) {
                     // A broken or unusual app icon must never stop the launcher from starting.
                 }
@@ -231,6 +234,37 @@ public final class LauncherRepository {
         } catch (JSONException ignored) {
         }
         return out;
+    }
+
+    private Bitmap minimalIcon(Drawable drawable, int size) {
+        if (drawable == null) return null;
+        try {
+            Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+            Canvas canvas = new Canvas(bitmap);
+
+            Paint bg = new Paint(Paint.ANTI_ALIAS_FLAG);
+            bg.setColor(0x66000000);
+            float radius = size * 0.42f;
+            canvas.drawCircle(size / 2f, size / 2f, radius, bg);
+
+            Drawable glyph;
+            if (drawable instanceof AdaptiveIconDrawable) {
+                glyph = ((AdaptiveIconDrawable) drawable).getForeground();
+            } else {
+                glyph = drawable;
+            }
+
+            if (glyph == null) return bitmap;
+            glyph = glyph.mutate();
+            glyph.setTint(Color.WHITE);
+
+            int pad = Math.round(size * 0.20f);
+            glyph.setBounds(pad, pad, size - pad, size - pad);
+            glyph.draw(canvas);
+            return bitmap;
+        } catch (Throwable t) {
+            return drawableToBitmap(drawable, size);
+        }
     }
 
     private Bitmap drawableToBitmap(Drawable drawable, int size) {
