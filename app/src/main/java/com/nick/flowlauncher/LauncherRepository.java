@@ -16,6 +16,7 @@ import android.graphics.drawable.AdaptiveIconDrawable;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
+import android.os.Build;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -241,37 +242,113 @@ public final class LauncherRepository {
     private Bitmap minimalIcon(Drawable drawable, int size) {
         if (drawable == null) return null;
         try {
-            Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
-            Canvas canvas = new Canvas(bitmap);
+            Bitmap out = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+            Canvas canvas = new Canvas(out);
 
-            // Frosted "glass" disc: consistent launcher styling without destroying app identity.
+            // Unified soft-squircle plate.
             Paint plate = new Paint(Paint.ANTI_ALIAS_FLAG);
-            plate.setColor(0x9A20242B);
-            canvas.drawCircle(size / 2f, size / 2f, size * 0.44f, plate);
+            plate.setColor(0xC51A1E25);
+            float inset = size * 0.055f;
+            android.graphics.RectF plateRect = new android.graphics.RectF(
+                    inset, inset, size - inset, size - inset);
+            canvas.drawRoundRect(plateRect, size * 0.27f, size * 0.27f, plate);
 
             Paint rim = new Paint(Paint.ANTI_ALIAS_FLAG);
             rim.setStyle(Paint.Style.STROKE);
-            rim.setStrokeWidth(Math.max(1f, size * 0.025f));
-            rim.setColor(0x55FFFFFF);
-            canvas.drawCircle(size / 2f, size / 2f, size * 0.43f, rim);
+            rim.setStrokeWidth(Math.max(1f, size * 0.022f));
+            rim.setColor(0x55BCEFF5);
+            canvas.drawRoundRect(plateRect, size * 0.27f, size * 0.27f, rim);
 
-            int innerSize = Math.max(1, Math.round(size * 0.62f));
-            Bitmap artwork = drawableToBitmap(drawable, innerSize);
-            if (artwork != null) {
-                Paint iconPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
-                ColorMatrix matrix = new ColorMatrix();
-                matrix.setSaturation(0.58f);
-                iconPaint.setColorFilter(new ColorMatrixColorFilter(matrix));
-                iconPaint.setAlpha(245);
+            Drawable glyph = null;
+            boolean trueMonochrome = false;
 
-                float left = (size - innerSize) / 2f;
-                float top = (size - innerSize) / 2f;
-                canvas.drawBitmap(artwork, left, top, iconPaint);
+            if (drawable instanceof AdaptiveIconDrawable) {
+                AdaptiveIconDrawable adaptive = (AdaptiveIconDrawable) drawable;
+
+                if (Build.VERSION.SDK_INT >= 33) {
+                    try {
+                        glyph = adaptive.getMonochrome();
+                        trueMonochrome = glyph != null;
+                    } catch (Throwable ignored) {
+                    }
+                }
+
+                if (glyph == null) {
+                    try {
+                        glyph = adaptive.getForeground();
+                    } catch (Throwable ignored) {
+                    }
+                }
             }
-            return bitmap;
+
+            if (glyph == null) glyph = drawable;
+
+            int glyphSize = Math.max(1, Math.round(size * 0.68f));
+            int left = (size - glyphSize) / 2;
+            int top = (size - glyphSize) / 2;
+
+            if (trueMonochrome) {
+                Drawable mono = glyph.mutate();
+                mono.setTint(0xFFF1FCFF);
+                mono.setBounds(left, top, left + glyphSize, top + glyphSize);
+
+                Paint glow = new Paint(Paint.ANTI_ALIAS_FLAG);
+                glow.setColor(0x226DDDE8);
+                canvas.drawCircle(size / 2f, size / 2f, size * 0.30f, glow);
+                mono.draw(canvas);
+            } else {
+                Bitmap raw = drawableToBitmap(glyph, glyphSize);
+                Bitmap duo = makeDuotone(raw);
+                if (duo != null) {
+                    Paint p = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+                    canvas.drawBitmap(duo, left, top, p);
+                }
+            }
+
+            return out;
         } catch (Throwable t) {
             return drawableToBitmap(drawable, size);
         }
+    }
+
+    private Bitmap makeDuotone(Bitmap source) {
+        if (source == null) return null;
+
+        int w = source.getWidth();
+        int h = source.getHeight();
+        int[] pixels = new int[w * h];
+        source.getPixels(pixels, 0, w, 0, 0, w, h);
+
+        final int cool = Color.rgb(105, 225, 236);
+        final int light = Color.rgb(242, 250, 252);
+
+        for (int i = 0; i < pixels.length; i++) {
+            int p = pixels[i];
+            int a = Color.alpha(p);
+            if (a < 18) {
+                pixels[i] = Color.TRANSPARENT;
+                continue;
+            }
+
+            int r = Color.red(p);
+            int g = Color.green(p);
+            int b = Color.blue(p);
+            int luminance = (r * 54 + g * 183 + b * 19) >> 8;
+
+            int mapped = luminance < 142 ? cool : light;
+
+            // Retain some natural antialiasing/transparency at the edges.
+            int outAlpha = Math.min(245, Math.max(75, a));
+            pixels[i] = Color.argb(
+                    outAlpha,
+                    Color.red(mapped),
+                    Color.green(mapped),
+                    Color.blue(mapped));
+        }
+
+        Bitmap result = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        result.setPixels(pixels, 0, w, 0, 0, w, h);
+        return result;
     }
 
     private Bitmap drawableToBitmap(Drawable drawable, int size) {
