@@ -10,12 +10,18 @@
     </queries>
 
     <application
+        android:name=".FlowApplication"
         android:allowBackup="true"
         android:icon="@drawable/ic_launcher_foreground"
         android:roundIcon="@drawable/ic_launcher_foreground"
         android:label="Flow Launcher"
         android:theme="@style/AppTheme"
         android:supportsRtl="true">
+
+        <activity
+            android:name=".CrashReportActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
 
         <activity
             android:name=".LauncherActivity"
