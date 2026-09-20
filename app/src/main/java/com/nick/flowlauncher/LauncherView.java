@@ -182,7 +182,7 @@ public final class LauncherView extends View {
     }
 
     private void drawBottom(Canvas c, float a) {
-        float y = getHeight() - dp(48);
+        float y = getHeight() - dp(92);
         text.setTypeface(android.graphics.Typeface.create("sans-serif-medium", 0));
         text.setTextSize(sp(15));
         text.setColor(alpha(Color.WHITE, clamp((int)(215 * a))));
@@ -288,7 +288,13 @@ public final class LauncherView extends View {
                 if (inAlphabet(x, y)) {
                     scrubbing = true; pressed = -1; selectLetter(y, true);
                 } else {
-                    scrubbing = false; findPressed(y);
+                    scrubbing = false;
+                    findPressed(y);
+                    // When the app/letter overlay is open, tapping empty space dismisses it.
+                    if (mode != HOME && pressed < 0) {
+                        closeOverlay();
+                        return true;
+                    }
                     if (pressed >= 0) handler.postDelayed(longPressRunnable, 520);
                 }
                 invalidate();
@@ -359,7 +365,7 @@ public final class LauncherView extends View {
     }
 
     private boolean handleBottom(float x, float y) {
-        if (mode != HOME || y < getHeight() - dp(95) || callback == null) return false;
+        if (mode != HOME || y < getHeight() - dp(130) || callback == null) return false;
         if (x < getWidth() * .52f) callback.requestSearch(); else callback.requestAddShortcut();
         return true;
     }
