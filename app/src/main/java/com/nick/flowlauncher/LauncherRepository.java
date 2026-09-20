@@ -9,6 +9,8 @@ import android.content.pm.ResolveInfo;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.ColorMatrix;
+import android.graphics.ColorMatrixColorFilter;
 import android.graphics.Paint;
 import android.graphics.drawable.AdaptiveIconDrawable;
 import android.graphics.drawable.BitmapDrawable;
@@ -242,15 +244,30 @@ public final class LauncherRepository {
             Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
             Canvas canvas = new Canvas(bitmap);
 
-            // One consistent minimal container, while keeping each app's real artwork recognizable.
-            Paint bg = new Paint(Paint.ANTI_ALIAS_FLAG);
-            bg.setColor(0x70000000);
-            canvas.drawCircle(size / 2f, size / 2f, size * 0.43f, bg);
+            // Frosted "glass" disc: consistent launcher styling without destroying app identity.
+            Paint plate = new Paint(Paint.ANTI_ALIAS_FLAG);
+            plate.setColor(0x9A20242B);
+            canvas.drawCircle(size / 2f, size / 2f, size * 0.44f, plate);
 
-            Drawable artwork = drawable.mutate();
-            int pad = Math.round(size * 0.15f);
-            artwork.setBounds(pad, pad, size - pad, size - pad);
-            artwork.draw(canvas);
+            Paint rim = new Paint(Paint.ANTI_ALIAS_FLAG);
+            rim.setStyle(Paint.Style.STROKE);
+            rim.setStrokeWidth(Math.max(1f, size * 0.025f));
+            rim.setColor(0x55FFFFFF);
+            canvas.drawCircle(size / 2f, size / 2f, size * 0.43f, rim);
+
+            int innerSize = Math.max(1, Math.round(size * 0.62f));
+            Bitmap artwork = drawableToBitmap(drawable, innerSize);
+            if (artwork != null) {
+                Paint iconPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+                ColorMatrix matrix = new ColorMatrix();
+                matrix.setSaturation(0.58f);
+                iconPaint.setColorFilter(new ColorMatrixColorFilter(matrix));
+                iconPaint.setAlpha(245);
+
+                float left = (size - innerSize) / 2f;
+                float top = (size - innerSize) / 2f;
+                canvas.drawBitmap(artwork, left, top, iconPaint);
+            }
             return bitmap;
         } catch (Throwable t) {
             return drawableToBitmap(drawable, size);
