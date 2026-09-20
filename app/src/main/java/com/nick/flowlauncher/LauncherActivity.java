@@ -11,6 +11,7 @@ import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.provider.MediaStore;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.Gravity;
@@ -280,6 +281,37 @@ public final class LauncherActivity extends Activity implements LauncherView.Cal
         InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
         if (imm != null) imm.showSoftInput(searchField, InputMethodManager.SHOW_IMPLICIT);
         launcherView.setSearchMode(true);
+    }
+
+    @Override
+    public void requestPhone() {
+        try {
+            Intent dial = new Intent(Intent.ACTION_DIAL);
+            startActivity(dial);
+        } catch (Throwable t) {
+            Toast.makeText(this, "Couldn't open the phone app", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    @Override
+    public void requestCamera() {
+        try {
+            Intent camera = new Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA);
+            startActivity(camera);
+            return;
+        } catch (Throwable ignored) {
+        }
+
+        try {
+            Intent samsungCamera = getPackageManager().getLaunchIntentForPackage("com.sec.android.app.camera");
+            if (samsungCamera != null) {
+                startActivity(samsungCamera);
+                return;
+            }
+        } catch (Throwable ignored) {
+        }
+
+        Toast.makeText(this, "Couldn't open the camera", Toast.LENGTH_SHORT).show();
     }
 
     @Override
