@@ -6,6 +6,7 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.RectF;
 import android.os.Handler;
 import android.os.Looper;
@@ -31,6 +32,8 @@ public final class LauncherView extends View {
         void toggleFavorite(AppEntry app);
         void removeShortcut(WebShortcut shortcut);
         void requestSearch();
+        void requestPhone();
+        void requestCamera();
         void requestLauncherSettings();
     }
 
@@ -158,15 +161,20 @@ public final class LauncherView extends View {
 
     private void drawFavorites(Canvas c, float a) {
         float start = homeStart();
+        float row = homeRowHeight();
         int max = Math.min(favorites.size(), maxHomeRows());
+
         for (int i = 0; i < max; i++) {
             FavoriteItem item = favorites.get(i);
-            float cy = start + i * rowHeight() - dp(18) * overlay;
-            float scale = homePressed && pressed == i ? .94f : 1f;
-            float iconSize = dp(45) * scale;
-            float x = dp(27) + (dp(45) - iconSize) / 2f;
+            float cy = start + i * row - dp(12) * overlay;
+            float scale = homePressed && pressed == i ? .93f : 1f;
+
+            float iconSize = Math.min(dp(39), row * .78f) * scale;
+            float slot = dp(40);
+            float x = dp(25) + (slot - iconSize) / 2f;
             float y = cy - iconSize / 2f;
             Bitmap icon = item.app != null ? item.app.icon : item.shortcut.icon;
+
             paint.setAlpha(clamp((int)(255 * a)));
             if (icon != null) {
                 rect.set(x, y, x + iconSize, y + iconSize);
@@ -175,24 +183,63 @@ public final class LauncherView extends View {
                 drawGlobe(c, x, y, iconSize, a);
             }
             paint.setAlpha(255);
+
             text.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", 0));
-            text.setTextSize(sp(20));
+            text.setTextSize(sp(row < dp(40) ? 16.5f : 18.5f));
             text.setColor(alpha(Color.WHITE, clamp((int)(245 * a))));
             String label = item.app != null ? item.app.label : item.shortcut.name;
-            c.drawText(shorten(label, 23), dp(87), cy + dp(7), text);
+            c.drawText(shorten(label, 24), dp(79), cy + dp(6), text);
         }
     }
 
     private void drawBottom(Canvas c, float a) {
-        float y = getHeight() - dp(74);
+        float cy = getHeight() - dp(58);
+        float phoneX = dp(48);
+        float cameraX = getWidth() - dp(48);
+
+        drawDockButton(c, phoneX, cy, false, a);
+        drawDockButton(c, cameraX, cy, true, a);
+
         text.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", 0));
-        text.setTextSize(sp(15));
-        text.setColor(alpha(Color.WHITE, clamp((int)(215 * a))));
-        text.setTextSize(sp(13));
-        text.setColor(alpha(Color.WHITE, clamp((int)(150 * a))));
-        c.drawText("↑ search", dp(28), y, text);
+        text.setTextSize(sp(12.5f));
+        text.setColor(alpha(Color.WHITE, clamp((int)(155 * a))));
+
+        c.drawText("↑ search", dp(91), cy + dp(4), text);
         String add = "+ website";
-        c.drawText(add, getWidth() - dp(30) - text.measureText(add), y, text);
+        c.drawText(add, getWidth() - dp(91) - text.measureText(add), cy + dp(4), text);
+    }
+
+    private void drawDockButton(Canvas c, float cx, float cy, boolean camera, float a) {
+        float r = dp(23);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(alpha(Color.BLACK, clamp((int)(165 * a))));
+        c.drawCircle(cx, cy, r, paint);
+
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(dp(1.8f));
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        paint.setStrokeJoin(Paint.Join.ROUND);
+        paint.setColor(alpha(Color.WHITE, clamp((int)(235 * a))));
+
+        if (camera) {
+            rect.set(cx - dp(9), cy - dp(7), cx + dp(9), cy + dp(8));
+            c.drawRoundRect(rect, dp(3), dp(3), paint);
+            c.drawCircle(cx, cy + dp(.5f), dp(4), paint);
+            c.drawLine(cx - dp(4), cy - dp(9), cx + dp(3), cy - dp(9), paint);
+        } else {
+            Path p = new Path();
+            p.moveTo(cx - dp(8), cy - dp(10));
+            p.cubicTo(cx - dp(11), cy - dp(6), cx - dp(7), cy + dp(4), cx, cy + dp(9));
+            p.cubicTo(cx + dp(6), cy + dp(13), cx + dp(10), cy + dp(10), cx + dp(10), cy + dp(6));
+            p.lineTo(cx + dp(5), cy + dp(2));
+            p.cubicTo(cx + dp(3), cy + dp(1), cx + dp(2), cy + dp(4), cx, cy + dp(3));
+            p.cubicTo(cx - dp(3), cy + dp(1), cx - dp(5), cy - dp(2), cx - dp(5), cy - dp(4));
+            p.cubicTo(cx - dp(5), cy - dp(6), cx - dp(2), cy - dp(6), cx - dp(3), cy - dp(8));
+            p.close();
+            c.drawPath(p, paint);
+        }
+
+        paint.setStyle(Paint.Style.FILL);
     }
 
     private void drawAlphabet(Canvas c) {
@@ -424,10 +471,11 @@ public final class LauncherView extends View {
     private void findPressed(float y) {
         pressed = -1;
         if (mode == HOME) {
-            int i = Math.round((y - homeStart()) / rowHeight());
+            float row = homeRowHeight();
+            int i = Math.round((y - homeStart()) / row);
             if (i >= 0 && i < Math.min(favorites.size(), maxHomeRows())) {
-                float cy = homeStart() + i * rowHeight();
-                if (Math.abs(y - cy) < rowHeight() * .48f) { pressed = i; homePressed = true; }
+                float cy = homeStart() + i * row;
+                if (Math.abs(y - cy) < row * .48f) { pressed = i; homePressed = true; }
             }
         } else if (mode == LETTER) {
             int max = Math.min(visibleApps.size(), Math.min(8, maxOverlayRows()));
@@ -479,8 +527,20 @@ public final class LauncherView extends View {
     }
 
     private boolean handleBottom(float x, float y) {
-        if (mode != HOME || y < getHeight() - dp(115) || callback == null) return false;
-        if (x < getWidth() * .52f) callback.requestSearch(); else callback.requestAddShortcut();
+        if (mode != HOME || y < getHeight() - dp(100) || callback == null) return false;
+
+        float cy = getHeight() - dp(58);
+        if (distance(x, y, dp(48), cy) <= dp(32)) {
+            callback.requestPhone();
+            return true;
+        }
+        if (distance(x, y, getWidth() - dp(48), cy) <= dp(32)) {
+            callback.requestCamera();
+            return true;
+        }
+
+        if (x < getWidth() * .50f) callback.requestSearch();
+        else callback.requestAddShortcut();
         return true;
     }
 
@@ -535,10 +595,21 @@ public final class LauncherView extends View {
     private float alphabetTop() { return dp(124); }
     private float alphabetBottom() { return Math.max(dp(400), getHeight() - dp(128)); }
     private float yForLetter(char c) { return alphabetTop() + (alphabetBottom() - alphabetTop()) * Math.max(0, LETTERS.indexOf(c)) / 25f; }
-    private float homeStart() { return Math.max(dp(225), getHeight() * .36f); }
-    private float rowHeight() { return dp(61); }
+    private float homeStart() { return Math.max(dp(130), getHeight() * .205f); }
+
+    private float homeRowHeight() {
+        float available = Math.max(dp(120), getHeight() - homeStart() - dp(96));
+        int desired = Math.max(1, Math.min(favorites.size(), 12));
+        float fit = available / desired;
+        return Math.max(dp(35), Math.min(dp(52), fit));
+    }
+
     private float overlayRowHeight() { return dp(64); }
-    private int maxHomeRows() { return Math.max(3, (int)((getHeight() - homeStart() - dp(105)) / rowHeight())); }
+
+    private int maxHomeRows() {
+        float available = Math.max(dp(120), getHeight() - homeStart() - dp(96));
+        return Math.max(3, (int)(available / homeRowHeight()));
+    }
     private int maxOverlayRows() { return Math.max(4, (int)((getHeight() - dp(246)) / overlayRowHeight())); }
     private float dp(float v) { return v * density; }
     private float sp(float v) { return v * getResources().getDisplayMetrics().scaledDensity; }
