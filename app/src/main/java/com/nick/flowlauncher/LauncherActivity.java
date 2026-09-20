@@ -2,6 +2,7 @@ package com.nick.flowlauncher;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.role.RoleManager;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.graphics.Bitmap;
@@ -32,6 +33,7 @@ import java.util.concurrent.Executors;
 
 public final class LauncherActivity extends Activity implements LauncherView.Callback {
     private static final int PICK_SHORTCUT_ICON = 5021;
+    private static final int REQUEST_HOME_ROLE = 5022;
 
     private LauncherRepository repository;
     private LauncherView launcherView;
@@ -63,6 +65,7 @@ public final class LauncherActivity extends Activity implements LauncherView.Cal
         repository = new LauncherRepository(this);
         buildUi();
         launcherView.postDelayed(this::reloadDataAsync, 250);
+        launcherView.postDelayed(this::requestHomeRoleIfNeeded, 800);
     }
 
     @Override
@@ -71,6 +74,43 @@ public final class LauncherActivity extends Activity implements LauncherView.Cal
         // onCreate already starts the initial load. Do not immediately scan every app twice.
         if (firstResume) {
             firstResume = false;
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        // Pressing Home while Flow is already visible should always return to the clean home screen.
+        if (searchField != null && searchField.getVisibility() == View.VISIBLE) {
+            closeSearch();
+        } else if (launcherView != null) {
+            launcherView.closeOverlay();
+        }
+    }
+
+    private void requestHomeRoleIfNeeded() {
+        if (isFinishing() || isDestroyed()) return;
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            try {
+                RoleManager roleManager = getSystemService(RoleManager.class);
+                if (roleManager != null
+                        && roleManager.isRoleAvailable(RoleManager.ROLE_HOME)
+                        && !roleManager.isRoleHeld(RoleManager.ROLE_HOME)) {
+                    startActivityForResult(
+                            roleManager.createRequestRoleIntent(RoleManager.ROLE_HOME),
+                            REQUEST_HOME_ROLE);
+                    return;
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+
+        // Fallback for devices/ROMs that do not expose the Home role request dialog.
+        try {
+            Intent homeSettings = new Intent(Settings.ACTION_HOME_SETTINGS);
+            startActivity(homeSettings);
+        } catch (Throwable ignored) {
         }
     }
 
@@ -116,7 +156,7 @@ public final class LauncherActivity extends Activity implements LauncherView.Cal
         FrameLayout.LayoutParams searchParams = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, dp(58));
         searchParams.gravity = Gravity.BOTTOM;
-        searchParams.setMargins(dp(22), 0, dp(22), dp(28));
+        searchParams.setMargins(dp(22), 0, dp(22), dp(84));
         root.addView(searchField, searchParams);
 
         loadingView = new TextView(this);
@@ -351,7 +391,7 @@ public final class LauncherActivity extends Activity implements LauncherView.Cal
             return;
         }
         if (launcherView != null && launcherView.closeOverlay()) return;
-        super.onBackPressed();
+        // A launcher stays on Home; Back from the clean home screen should not exit it.
     }
 
     private int dp(float value) {
