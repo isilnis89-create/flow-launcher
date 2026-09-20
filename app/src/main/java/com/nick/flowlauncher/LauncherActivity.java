@@ -139,11 +139,13 @@ public final class LauncherActivity extends Activity implements LauncherView.Cal
         searchField = new EditText(this);
         searchField.setSingleLine(true);
         searchField.setHint("Search apps");
-        searchField.setTextColor(Color.WHITE);
-        searchField.setHintTextColor(0x99FFFFFF);
-        searchField.setTextSize(18f);
-        searchField.setBackground(new ColorDrawable(0x33000000));
-        searchField.setPadding(dp(18), 0, dp(18), 0);
+        // Hidden input: swipe-up search uses the keyboard, while the typed query is drawn by LauncherView.
+        searchField.setTextColor(Color.TRANSPARENT);
+        searchField.setHintTextColor(Color.TRANSPARENT);
+        searchField.setTextSize(1f);
+        searchField.setBackgroundColor(Color.TRANSPARENT);
+        searchField.setPadding(0, 0, 0, 0);
+        searchField.setAlpha(0.01f);
         searchField.setVisibility(View.GONE);
         searchField.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
@@ -153,10 +155,8 @@ public final class LauncherActivity extends Activity implements LauncherView.Cal
             @Override public void afterTextChanged(Editable s) { }
         });
 
-        FrameLayout.LayoutParams searchParams = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT, dp(58));
-        searchParams.gravity = Gravity.BOTTOM;
-        searchParams.setMargins(dp(22), 0, dp(22), dp(84));
+        FrameLayout.LayoutParams searchParams = new FrameLayout.LayoutParams(dp(2), dp(2));
+        searchParams.gravity = Gravity.BOTTOM | Gravity.LEFT;
         root.addView(searchField, searchParams);
 
         loadingView = new TextView(this);
@@ -276,9 +276,6 @@ public final class LauncherActivity extends Activity implements LauncherView.Cal
     public void requestSearch() {
         if (searchField.getVisibility() == View.VISIBLE) return;
         searchField.setVisibility(View.VISIBLE);
-        searchField.setAlpha(0f);
-        searchField.setTranslationY(dp(18));
-        searchField.animate().alpha(1f).translationY(0f).setDuration(180).start();
         searchField.requestFocus();
         InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
         if (imm != null) imm.showSoftInput(searchField, InputMethodManager.SHOW_IMPLICIT);
