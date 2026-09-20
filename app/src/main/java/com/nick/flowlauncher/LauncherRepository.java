@@ -242,25 +242,15 @@ public final class LauncherRepository {
             Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
             Canvas canvas = new Canvas(bitmap);
 
+            // One consistent minimal container, while keeping each app's real artwork recognizable.
             Paint bg = new Paint(Paint.ANTI_ALIAS_FLAG);
-            bg.setColor(0x66000000);
-            float radius = size * 0.42f;
-            canvas.drawCircle(size / 2f, size / 2f, radius, bg);
+            bg.setColor(0x70000000);
+            canvas.drawCircle(size / 2f, size / 2f, size * 0.43f, bg);
 
-            Drawable glyph;
-            if (drawable instanceof AdaptiveIconDrawable) {
-                glyph = ((AdaptiveIconDrawable) drawable).getForeground();
-            } else {
-                glyph = drawable;
-            }
-
-            if (glyph == null) return bitmap;
-            glyph = glyph.mutate();
-            glyph.setTint(Color.WHITE);
-
-            int pad = Math.round(size * 0.20f);
-            glyph.setBounds(pad, pad, size - pad, size - pad);
-            glyph.draw(canvas);
+            Drawable artwork = drawable.mutate();
+            int pad = Math.round(size * 0.15f);
+            artwork.setBounds(pad, pad, size - pad, size - pad);
+            artwork.draw(canvas);
             return bitmap;
         } catch (Throwable t) {
             return drawableToBitmap(drawable, size);
