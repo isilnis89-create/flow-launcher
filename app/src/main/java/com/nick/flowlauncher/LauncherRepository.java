@@ -50,21 +50,42 @@ public final class LauncherRepository {
     public List<AppEntry> loadApps() {
         Intent query = new Intent(Intent.ACTION_MAIN);
         query.addCategory(Intent.CATEGORY_LAUNCHER);
-        List<ResolveInfo> infos = pm.queryIntentActivities(query, PackageManager.MATCH_ALL);
+        List<ResolveInfo> infos;
+        try {
+            infos = pm.queryIntentActivities(query, PackageManager.MATCH_ALL);
+        } catch (Throwable t) {
+            infos = new ArrayList<>();
+        }
         List<AppEntry> out = new ArrayList<>();
         Set<String> seen = new HashSet<>();
         int size = dp(52);
 
         for (ResolveInfo info : infos) {
-            if (info.activityInfo == null) continue;
-            if (context.getPackageName().equals(info.activityInfo.packageName)) continue;
-            ComponentName component = new ComponentName(info.activityInfo.packageName, info.activityInfo.name);
-            String key = component.flattenToShortString();
-            if (!seen.add(key)) continue;
-            CharSequence cs = info.loadLabel(pm);
-            String label = cs == null ? info.activityInfo.packageName : cs.toString();
-            Bitmap icon = drawableToBitmap(info.loadIcon(pm), size);
-            out.add(new AppEntry(label, component, icon));
+            try {
+                if (info == null || info.activityInfo == null) continue;
+                if (context.getPackageName().equals(info.activityInfo.packageName)) continue;
+                ComponentName component = new ComponentName(info.activityInfo.packageName, info.activityInfo.name);
+                String key = component.flattenToShortString();
+                if (!seen.add(key)) continue;
+
+                String label;
+                try {
+                    CharSequence cs = info.loadLabel(pm);
+                    label = cs == null ? info.activityInfo.packageName : cs.toString();
+                } catch (Throwable ignored) {
+                    label = info.activityInfo.packageName;
+                }
+
+                Bitmap icon = null;
+                try {
+                    icon = drawableToBitmap(info.loadIcon(pm), size);
+                } catch (Throwable ignored) {
+                    // A broken or unusual app icon must never stop the launcher from starting.
+                }
+                out.add(new AppEntry(label, component, icon));
+            } catch (Throwable ignored) {
+                // Skip malformed package entries instead of crashing the whole launcher.
+            }
         }
 
         Collator collator = Collator.getInstance(Locale.getDefault());
@@ -214,15 +235,19 @@ public final class LauncherRepository {
 
     private Bitmap drawableToBitmap(Drawable drawable, int size) {
         if (drawable == null) return null;
-        if (drawable instanceof BitmapDrawable) {
-            Bitmap b = ((BitmapDrawable) drawable).getBitmap();
-            if (b != null && b.getWidth() == size && b.getHeight() == size) return b;
+        try {
+            if (drawable instanceof BitmapDrawable) {
+                Bitmap b = ((BitmapDrawable) drawable).getBitmap();
+                if (b != null && b.getWidth() == size && b.getHeight() == size) return b;
+            }
+            Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+            Canvas canvas = new Canvas(bitmap);
+            drawable.setBounds(0, 0, size, size);
+            drawable.draw(canvas);
+            return bitmap;
+        } catch (Throwable t) {
+            return null;
         }
-        Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(bitmap);
-        drawable.setBounds(0, 0, size, size);
-        drawable.draw(canvas);
-        return bitmap;
     }
 
     private int dp(float v) {
