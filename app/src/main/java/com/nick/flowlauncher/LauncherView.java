@@ -30,6 +30,7 @@ public final class LauncherView extends View {
         void openWebShortcut(WebShortcut shortcut);
         void requestAddShortcut();
         void toggleFavorite(AppEntry app);
+        void editFavorite(AppEntry app);
         void removeShortcut(WebShortcut shortcut);
         void requestSearch();
         void requestPhone();
@@ -53,6 +54,7 @@ public final class LauncherView extends View {
     private final List<AppEntry> visibleApps = new ArrayList<>();
     private final Map<String, AppEntry> appIndex = new HashMap<>();
     private final Map<String, WebShortcut> shortcutIndex = new HashMap<>();
+    private final Map<String, FavoriteOverride> favoriteOverrides = new HashMap<>();
 
     private Callback callback;
     private final float density;
@@ -84,13 +86,16 @@ public final class LauncherView extends View {
 
     public void setCallback(Callback callback) { this.callback = callback; }
 
-    public void setData(List<AppEntry> newApps, List<WebShortcut> newShortcuts, List<String> keys) {
+    public void setData(List<AppEntry> newApps, List<WebShortcut> newShortcuts,
+                        List<String> keys, Map<String, FavoriteOverride> overrides) {
         apps.clear();
         shortcuts.clear();
         favoriteKeys.clear();
+        favoriteOverrides.clear();
         if (newApps != null) apps.addAll(newApps);
         if (newShortcuts != null) shortcuts.addAll(newShortcuts);
         if (keys != null) favoriteKeys.addAll(keys);
+        if (overrides != null) favoriteOverrides.putAll(overrides);
         rebuild();
         refreshVisible();
         invalidate();
@@ -173,7 +178,10 @@ public final class LauncherView extends View {
             float slot = dp(40);
             float x = dp(25) + (slot - iconSize) / 2f;
             float y = cy - iconSize / 2f;
-            Bitmap icon = item.app != null ? item.app.icon : item.shortcut.icon;
+            FavoriteOverride favoriteOverride = item.app != null ? favoriteOverrides.get(item.app.key()) : null;
+            Bitmap icon = item.app != null
+                    ? (favoriteOverride != null && favoriteOverride.icon != null ? favoriteOverride.icon : item.app.icon)
+                    : item.shortcut.icon;
 
             paint.setAlpha(clamp((int)(255 * a)));
             if (icon != null) {
@@ -187,7 +195,13 @@ public final class LauncherView extends View {
             text.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", 0));
             text.setTextSize(sp(row < dp(40) ? 16.5f : 18.5f));
             text.setColor(alpha(Color.WHITE, clamp((int)(245 * a))));
-            String label = item.app != null ? item.app.label : item.shortcut.name;
+            String label;
+            if (item.app != null) {
+                label = favoriteOverride != null && favoriteOverride.name != null && !favoriteOverride.name.isEmpty()
+                        ? favoriteOverride.name : item.app.label;
+            } else {
+                label = item.shortcut.name;
+            }
             c.drawText(shorten(label, 24), dp(79), cy + dp(6), text);
         }
     }
@@ -538,7 +552,7 @@ public final class LauncherView extends View {
         if (homePressed) {
             if (pressed >= favorites.size()) return;
             FavoriteItem item = favorites.get(pressed);
-            if (item.app != null) callback.toggleFavorite(item.app);
+            if (item.app != null) callback.editFavorite(item.app);
             else callback.removeShortcut(item.shortcut);
         } else if (pressed < visibleApps.size()) callback.toggleFavorite(visibleApps.get(pressed));
         clearPress();
