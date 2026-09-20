@@ -70,7 +70,6 @@ public final class LauncherView extends View {
         density = getResources().getDisplayMetrics().density;
         setFocusable(true);
         setClickable(true);
-        setLayerType(View.LAYER_TYPE_HARDWARE, null);
         handler.postDelayed(new Runnable() {
             @Override public void run() {
                 invalidate();
