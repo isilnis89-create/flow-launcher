@@ -63,6 +63,7 @@ public final class LauncherView extends View {
     private boolean scrubbing;
     private boolean longPressed;
     private float downX, downY;
+    private float drawerAnchorY = -1f;
     private final Runnable longPressRunnable = this::fireLongPress;
 
     public LauncherView(Context context) {
@@ -110,6 +111,7 @@ public final class LauncherView extends View {
         if (mode == HOME) return false;
         mode = HOME;
         query = "";
+        drawerAnchorY = -1f;
         visibleApps.clear();
         animateOverlay(false);
         return true;
@@ -196,45 +198,134 @@ public final class LauncherView extends View {
     private void drawAlphabet(Canvas c) {
         float top = alphabetTop(), bottom = alphabetBottom();
         float step = (bottom - top) / 25f;
-        float x = getWidth() - dp(16);
+        float baseX = getWidth() - dp(16);
+        int activeIndex = Math.max(0, LETTERS.indexOf(activeLetter));
+
         text.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", 0));
         text.setTextAlign(Paint.Align.CENTER);
+
         for (int i = 0; i < 26; i++) {
             char ch = LETTERS.charAt(i);
-            boolean on = mode == LETTER && activeLetter == ch;
-            text.setTextSize(sp(on ? 12 : 9));
-            text.setColor(on ? Color.WHITE : 0xBFFFFFFF);
-            c.drawText(String.valueOf(ch), x, top + i * step + dp(3), text);
+            boolean letterMode = mode == LETTER;
+            float distance = Math.abs(i - activeIndex);
+            float wave = letterMode ? Math.max(0f, 1f - distance / 4.2f) * overlay : 0f;
+            boolean on = letterMode && i == activeIndex;
+
+            float letterX = baseX - dp(22) * wave;
+            float size = 9f + 5f * wave;
+            int alphaValue = on ? 255 : (int)(190 + 50 * wave);
+
+            text.setTextSize(sp(size));
+            text.setColor(alpha(Color.WHITE, alphaValue));
+            c.drawText(String.valueOf(ch), letterX, top + i * step + dp(3), text);
         }
+
         text.setTextAlign(Paint.Align.LEFT);
-        if (mode == LETTER && overlay > 0) {
-            float bx = getWidth() - dp(66), by = yForLetter(activeLetter);
-            paint.setColor(alpha(Color.BLACK, (int)(150 * overlay)));
-            c.drawCircle(bx, by, dp(26), paint);
+        if (mode == LETTER && overlay > 0f) {
+            float bubbleY = drawerAnchorY > 0f ? drawerAnchorY : yForLetter(activeLetter);
+            bubbleY = Math.max(dp(120), Math.min(getHeight() - dp(125), bubbleY));
+            float bubbleX = getWidth() - dp(74);
+
+            paint.setColor(alpha(Color.BLACK, (int)(205 * overlay)));
+            c.drawCircle(bubbleX, bubbleY, dp(28), paint);
+
             text.setTextAlign(Paint.Align.CENTER);
-            text.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-            text.setTextSize(sp(23));
+            text.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.BOLD));
+            text.setTextSize(sp(24));
             text.setColor(alpha(Color.WHITE, (int)(255 * overlay)));
-            c.drawText(String.valueOf(activeLetter), bx, by + dp(8), text);
+            c.drawText(String.valueOf(activeLetter), bubbleX, bubbleY + dp(8), text);
             text.setTextAlign(Paint.Align.LEFT);
         }
     }
 
     private void drawApps(Canvas c) {
+        if (mode == LETTER) {
+            drawLetterApps(c);
+        } else {
+            drawSearchApps(c);
+        }
+    }
+
+    private void drawLetterApps(Canvas c) {
+        int max = Math.min(visibleApps.size(), Math.min(8, maxOverlayRows()));
+        if (max == 0) {
+            float y = drawerAnchorY > 0f ? drawerAnchorY : getHeight() * .48f;
+            text.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", 0));
+            text.setTextSize(sp(18));
+            text.setColor(alpha(Color.WHITE, (int)(215 * overlay)));
+            c.drawText("No apps under " + activeLetter, dp(30), y, text);
+            return;
+        }
+
+        float row = dp(59);
+        float anchor = drawerAnchorY > 0f ? drawerAnchorY : getHeight() * .48f;
+        anchor = Math.max(dp(180), Math.min(getHeight() - dp(180), anchor));
+
+        float total = (max - 1) * row;
+        float start = anchor - total / 2f;
+        float minStart = dp(155);
+        float maxStart = getHeight() - dp(135) - total;
+        if (maxStart < minStart) maxStart = minStart;
+        start = Math.max(minStart, Math.min(maxStart, start));
+
+        for (int i = 0; i < max; i++) {
+            AppEntry app = visibleApps.get(i);
+            float cy = start + i * row;
+            float distance = Math.abs(cy - anchor);
+            float proximity = Math.max(0f, 1f - distance / (row * 3.2f));
+            float entrance = ease.getInterpolation(Math.max(0f, Math.min(1f, overlay * 1.18f - i * .025f)));
+
+            float itemAlpha = entrance * (.42f + .58f * proximity);
+            float scale = .84f + .16f * proximity;
+            float pull = dp(32) * proximity;
+            float iconSize = dp(46) * scale;
+            float iconX = dp(28) + pull;
+            float labelX = dp(89) + pull;
+
+            if (!homePressed && pressed == i) {
+                paint.setColor(alpha(Color.WHITE, (int)(24 * itemAlpha)));
+                rect.set(dp(18) + pull * .25f, cy - dp(27), getWidth() - dp(70), cy + dp(27));
+                c.drawRoundRect(rect, dp(17), dp(17), paint);
+            }
+
+            if (app.icon != null) {
+                paint.setAlpha(clamp((int)(255 * itemAlpha)));
+                rect.set(iconX, cy - iconSize / 2f, iconX + iconSize, cy + iconSize / 2f);
+                c.drawBitmap(app.icon, null, rect, paint);
+                paint.setAlpha(255);
+            }
+
+            text.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", 0));
+            text.setTextSize(sp(18.5f + 2.5f * proximity));
+            text.setColor(alpha(Color.WHITE, clamp((int)(250 * itemAlpha))));
+            c.drawText(shorten(app.label, 24), labelX, cy + dp(7), text);
+
+            if (favoriteKeys.contains(app.key())) {
+                text.setTextAlign(Paint.Align.RIGHT);
+                text.setTextSize(sp(15));
+                text.setColor(alpha(Color.WHITE, clamp((int)(135 * itemAlpha))));
+                c.drawText("•", getWidth() - dp(72), cy + dp(5), text);
+                text.setTextAlign(Paint.Align.LEFT);
+            }
+        }
+    }
+
+    private void drawSearchApps(Canvas c) {
         float start = dp(156), row = overlayRowHeight();
         int max = Math.min(visibleApps.size(), maxOverlayRows());
-        if (mode == SEARCH) {
-            text.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", 0));
-            text.setTextSize(sp(14));
-            text.setColor(alpha(Color.WHITE, (int)(185 * overlay)));
-            c.drawText(query.isEmpty() ? "All apps" : "Results for “" + shorten(query, 22) + "”", dp(28), dp(133), text);
-        }
+
+        text.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", 0));
+        text.setTextSize(sp(14));
+        text.setColor(alpha(Color.WHITE, (int)(185 * overlay)));
+        c.drawText(query.isEmpty() ? "All apps" : "Results for “" + shorten(query, 22) + "”", dp(28), dp(133), text);
+
         if (max == 0) {
             text.setTextSize(sp(18));
             text.setColor(alpha(Color.WHITE, (int)(215 * overlay)));
-            c.drawText(mode == SEARCH ? "No matching apps" : "No apps under " + activeLetter, dp(28), start + dp(28), text);
+            c.drawText("No matching apps", dp(28), start + dp(28), text);
             return;
         }
+
         for (int i = 0; i < max; i++) {
             AppEntry app = visibleApps.get(i);
             float p = Math.max(0f, Math.min(1f, overlay * 1.16f - i * .045f));
@@ -243,21 +334,25 @@ public final class LauncherView extends View {
             float slide = dp(34) * (1f - p);
             float scale = !homePressed && pressed == i ? .94f : .90f + .10f * p;
             float iconSize = dp(46) * scale;
+
             if (!homePressed && pressed == i) {
                 paint.setColor(0x16FFFFFF);
                 rect.set(dp(18), cy - dp(29), getWidth() - dp(52), cy + dp(29));
                 c.drawRoundRect(rect, dp(18), dp(18), paint);
             }
+
             if (app.icon != null) {
                 paint.setAlpha(clamp((int)(255 * p)));
                 rect.set(dp(29) + slide, cy - iconSize / 2f, dp(29) + slide + iconSize, cy + iconSize / 2f);
                 c.drawBitmap(app.icon, null, rect, paint);
                 paint.setAlpha(255);
             }
+
             text.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", 0));
             text.setTextSize(sp(20));
             text.setColor(alpha(Color.WHITE, clamp((int)(250 * p))));
             c.drawText(shorten(app.label, 24), dp(89) + slide, cy + dp(7), text);
+
             if (favoriteKeys.contains(app.key())) {
                 text.setTextAlign(Paint.Align.RIGHT);
                 text.setTextSize(sp(16));
@@ -334,6 +429,23 @@ public final class LauncherView extends View {
                 float cy = homeStart() + i * rowHeight();
                 if (Math.abs(y - cy) < rowHeight() * .48f) { pressed = i; homePressed = true; }
             }
+        } else if (mode == LETTER) {
+            int max = Math.min(visibleApps.size(), Math.min(8, maxOverlayRows()));
+            if (max <= 0) return;
+            float row = dp(59);
+            float anchor = drawerAnchorY > 0f ? drawerAnchorY : getHeight() * .48f;
+            anchor = Math.max(dp(180), Math.min(getHeight() - dp(180), anchor));
+            float total = (max - 1) * row;
+            float start = anchor - total / 2f;
+            float minStart = dp(155);
+            float maxStart = getHeight() - dp(135) - total;
+            if (maxStart < minStart) maxStart = minStart;
+            start = Math.max(minStart, Math.min(maxStart, start));
+            int i = Math.round((y - start) / row);
+            if (i >= 0 && i < max) {
+                float cy = start + i * row;
+                if (Math.abs(y - cy) < row * .48f) { pressed = i; homePressed = false; }
+            }
         } else {
             int i = Math.round((y - dp(156)) / overlayRowHeight());
             if (i >= 0 && i < Math.min(visibleApps.size(), maxOverlayRows())) {
@@ -374,6 +486,7 @@ public final class LauncherView extends View {
 
     private void selectLetter(float y, boolean initial) {
         char old = activeLetter;
+        drawerAnchorY = Math.max(dp(135), Math.min(getHeight() - dp(135), y));
         float t = Math.max(0f, Math.min(1f, (y - alphabetTop()) / Math.max(1f, alphabetBottom() - alphabetTop())));
         activeLetter = LETTERS.charAt(Math.max(0, Math.min(25, Math.round(t * 25f))));
         mode = LETTER;
