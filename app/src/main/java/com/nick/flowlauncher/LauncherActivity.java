@@ -10,6 +10,7 @@ import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Build;
 import android.provider.Settings;
 import android.provider.MediaStore;
 import android.text.Editable;
@@ -19,6 +20,7 @@ import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
+import android.window.OnBackInvokedDispatcher;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
@@ -28,6 +30,9 @@ import android.widget.Toast;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -35,6 +40,7 @@ import java.util.concurrent.Executors;
 public final class LauncherActivity extends Activity implements LauncherView.Callback {
     private static final int PICK_SHORTCUT_ICON = 5021;
     private static final int REQUEST_HOME_ROLE = 5022;
+    private static final int PICK_FAVORITE_ICON = 5023;
 
     private LauncherRepository repository;
     private LauncherView launcherView;
@@ -47,6 +53,8 @@ public final class LauncherActivity extends Activity implements LauncherView.Cal
     private List<AppEntry> apps = new ArrayList<>();
     private List<WebShortcut> shortcuts = new ArrayList<>();
     private List<String> favoriteKeys = new ArrayList<>();
+    private Map<String, FavoriteOverride> favoriteOverrides = new HashMap<>();
+    private String pendingFavoriteKey;
     private final ExecutorService loader = Executors.newSingleThreadExecutor();
     private volatile boolean loading = false;
     private boolean firstResume = true;
@@ -65,6 +73,11 @@ public final class LauncherActivity extends Activity implements LauncherView.Cal
         configureWindow();
         repository = new LauncherRepository(this);
         buildUi();
+        if (Build.VERSION.SDK_INT >= 33) {
+            getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                    OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+                    this::handleBack);
+        }
         launcherView.postDelayed(this::reloadDataAsync, 250);
         launcherView.postDelayed(this::requestHomeRoleIfNeeded, 800);
     }
@@ -92,12 +105,22 @@ public final class LauncherActivity extends Activity implements LauncherView.Cal
 
     private void requestHomeRoleIfNeeded() {
         if (isFinishing() || isDestroyed()) return;
-        if (android.os.Build.VERSION.SDK_INT >= 29) {
+
+        // If Android already considers Flow the Home app, do absolutely nothing.
+        if (isDefaultHome()) return;
+
+        boolean alreadyPrompted = getSharedPreferences("flow_launcher_ui", MODE_PRIVATE)
+                .getBoolean("home_role_prompted", false);
+        if (alreadyPrompted) return;
+
+        if (Build.VERSION.SDK_INT >= 29) {
             try {
                 RoleManager roleManager = getSystemService(RoleManager.class);
-                if (roleManager != null
-                        && roleManager.isRoleAvailable(RoleManager.ROLE_HOME)
-                        && !roleManager.isRoleHeld(RoleManager.ROLE_HOME)) {
+                if (roleManager != null && roleManager.isRoleAvailable(RoleManager.ROLE_HOME)) {
+                    if (roleManager.isRoleHeld(RoleManager.ROLE_HOME)) return;
+
+                    getSharedPreferences("flow_launcher_ui", MODE_PRIVATE)
+                            .edit().putBoolean("home_role_prompted", true).apply();
                     startActivityForResult(
                             roleManager.createRequestRoleIntent(RoleManager.ROLE_HOME),
                             REQUEST_HOME_ROLE);
@@ -107,11 +130,25 @@ public final class LauncherActivity extends Activity implements LauncherView.Cal
             }
         }
 
-        // Fallback for devices/ROMs that do not expose the Home role request dialog.
         try {
-            Intent homeSettings = new Intent(Settings.ACTION_HOME_SETTINGS);
-            startActivity(homeSettings);
+            getSharedPreferences("flow_launcher_ui", MODE_PRIVATE)
+                    .edit().putBoolean("home_role_prompted", true).apply();
+            startActivity(new Intent(Settings.ACTION_HOME_SETTINGS));
         } catch (Throwable ignored) {
+        }
+    }
+
+    private boolean isDefaultHome() {
+        try {
+            Intent home = new Intent(Intent.ACTION_MAIN);
+            home.addCategory(Intent.CATEGORY_HOME);
+            android.content.pm.ResolveInfo info =
+                    getPackageManager().resolveActivity(home, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY);
+            return info != null
+                    && info.activityInfo != null
+                    && getPackageName().equals(info.activityInfo.packageName);
+        } catch (Throwable t) {
+            return false;
         }
     }
 
@@ -186,13 +223,15 @@ public final class LauncherActivity extends Activity implements LauncherView.Cal
                 List<AppEntry> loadedApps = repository.loadApps();
                 List<WebShortcut> loadedShortcuts = repository.loadShortcuts();
                 List<String> loadedFavorites = repository.getFavoriteKeys(loadedApps);
+                Map<String, FavoriteOverride> loadedOverrides = repository.loadFavoriteOverrides();
 
                 runOnUiThread(() -> {
                     if (isFinishing() || isDestroyed()) return;
                     apps = loadedApps;
                     shortcuts = loadedShortcuts;
                     favoriteKeys = loadedFavorites;
-                    launcherView.setData(apps, shortcuts, favoriteKeys);
+                    favoriteOverrides = loadedOverrides;
+                    launcherView.setData(apps, shortcuts, favoriteKeys, favoriteOverrides);
                     if (loadingView != null) loadingView.setVisibility(View.GONE);
                     loading = false;
                 });
@@ -260,7 +299,89 @@ public final class LauncherActivity extends Activity implements LauncherView.Cal
             Toast.makeText(this, "Added to favourites", Toast.LENGTH_SHORT).show();
         }
         repository.saveFavoriteKeys(favoriteKeys);
-        launcherView.setData(apps, shortcuts, favoriteKeys);
+        launcherView.setData(apps, shortcuts, favoriteKeys, favoriteOverrides);
+    }
+
+    @Override
+    public void editFavorite(AppEntry app) {
+        if (app == null) return;
+        String key = app.key();
+        FavoriteOverride current = favoriteOverrides.get(key);
+        String currentName = current != null && current.name != null && !current.name.isEmpty()
+                ? current.name : app.label;
+
+        String[] actions = {
+                "Rename",
+                "Change icon",
+                "Move up",
+                "Move down",
+                "Reset name & icon",
+                "Remove from favourites"
+        };
+
+        new AlertDialog.Builder(this)
+                .setTitle(currentName)
+                .setItems(actions, (dialog, which) -> {
+                    if (which == 0) showRenameFavoriteDialog(app);
+                    else if (which == 1) pickFavoriteIcon(app);
+                    else if (which == 2) moveFavorite(key, -1);
+                    else if (which == 3) moveFavorite(key, 1);
+                    else if (which == 4) {
+                        repository.resetFavoriteOverride(key);
+                        refreshFavoriteOverrides();
+                    } else if (which == 5) {
+                        favoriteKeys.remove(key);
+                        repository.saveFavoriteKeys(favoriteKeys);
+                        launcherView.setData(apps, shortcuts, favoriteKeys, favoriteOverrides);
+                    }
+                })
+                .show();
+    }
+
+    private void showRenameFavoriteDialog(AppEntry app) {
+        String key = app.key();
+        FavoriteOverride current = favoriteOverrides.get(key);
+
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setSelectAllOnFocus(true);
+        input.setText(current != null && current.name != null && !current.name.isEmpty()
+                ? current.name : app.label);
+        input.setPadding(dp(20), dp(8), dp(20), dp(8));
+
+        new AlertDialog.Builder(this)
+                .setTitle("Rename favourite")
+                .setView(input)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Save", (dialog, which) -> {
+                    repository.saveFavoriteName(key, input.getText().toString());
+                    refreshFavoriteOverrides();
+                })
+                .show();
+    }
+
+    private void pickFavoriteIcon(AppEntry app) {
+        pendingFavoriteKey = app.key();
+        Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        pick.addCategory(Intent.CATEGORY_OPENABLE);
+        pick.setType("image/*");
+        startActivityForResult(pick, PICK_FAVORITE_ICON);
+    }
+
+    private void moveFavorite(String key, int direction) {
+        int index = favoriteKeys.indexOf(key);
+        if (index < 0) return;
+        int target = index + direction;
+        if (target < 0 || target >= favoriteKeys.size()) return;
+
+        Collections.swap(favoriteKeys, index, target);
+        repository.saveFavoriteKeys(favoriteKeys);
+        launcherView.setData(apps, shortcuts, favoriteKeys, favoriteOverrides);
+    }
+
+    private void refreshFavoriteOverrides() {
+        favoriteOverrides = repository.loadFavoriteOverrides();
+        launcherView.setData(apps, shortcuts, favoriteKeys, favoriteOverrides);
     }
 
     @Override
@@ -399,6 +520,23 @@ public final class LauncherActivity extends Activity implements LauncherView.Cal
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == PICK_FAVORITE_ICON && resultCode == RESULT_OK
+                && data != null && data.getData() != null && pendingFavoriteKey != null) {
+            Uri uri = data.getData();
+            try {
+                getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (Exception ignored) { }
+            try {
+                Bitmap icon = repository.importIcon(uri);
+                repository.saveFavoriteIcon(pendingFavoriteKey, icon);
+                refreshFavoriteOverrides();
+            } catch (IOException e) {
+                Toast.makeText(this, "Couldn't read that image", Toast.LENGTH_SHORT).show();
+            }
+            pendingFavoriteKey = null;
+            return;
+        }
+
         if (requestCode == PICK_SHORTCUT_ICON && resultCode == RESULT_OK && data != null && data.getData() != null) {
             Uri uri = data.getData();
             try {
@@ -413,14 +551,18 @@ public final class LauncherActivity extends Activity implements LauncherView.Cal
         }
     }
 
-    @Override
-    public void onBackPressed() {
+    private void handleBack() {
         if (searchField != null && searchField.getVisibility() == View.VISIBLE) {
             closeSearch();
             return;
         }
         if (launcherView != null && launcherView.closeOverlay()) return;
-        // A launcher stays on Home; Back from the clean home screen should not exit it.
+        // On the clean home screen Back intentionally does nothing.
+    }
+
+    @Override
+    public void onBackPressed() {
+        handleBack();
     }
 
     private int dp(float value) {
