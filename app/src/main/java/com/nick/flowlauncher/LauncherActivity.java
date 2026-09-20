@@ -28,6 +28,8 @@ import android.widget.Toast;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public final class LauncherActivity extends Activity implements LauncherView.Callback {
     private static final int PICK_SHORTCUT_ICON = 5021;
@@ -43,6 +45,10 @@ public final class LauncherActivity extends Activity implements LauncherView.Cal
     private List<AppEntry> apps = new ArrayList<>();
     private List<WebShortcut> shortcuts = new ArrayList<>();
     private List<String> favoriteKeys = new ArrayList<>();
+    private final ExecutorService loader = Executors.newSingleThreadExecutor();
+    private volatile boolean loading = false;
+    private boolean firstResume = true;
+    private TextView loadingView;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -50,13 +56,22 @@ public final class LauncherActivity extends Activity implements LauncherView.Cal
         configureWindow();
         repository = new LauncherRepository(this);
         buildUi();
-        reloadData();
+        reloadDataAsync();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        if (repository != null && launcherView != null) reloadData();
+        // onCreate already starts the initial load. Do not immediately scan every app twice.
+        if (firstResume) {
+            firstResume = false;
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        loader.shutdownNow();
+        super.onDestroy();
     }
 
     private void configureWindow() {
@@ -108,14 +123,62 @@ public final class LauncherActivity extends Activity implements LauncherView.Cal
         searchParams.gravity = Gravity.BOTTOM;
         searchParams.setMargins(dp(22), 0, dp(22), dp(28));
         root.addView(searchField, searchParams);
+
+        loadingView = new TextView(this);
+        loadingView.setText("Loading apps…");
+        loadingView.setTextColor(0xDDFFFFFF);
+        loadingView.setTextSize(16f);
+        loadingView.setGravity(Gravity.CENTER);
+        loadingView.setBackgroundColor(0x22000000);
+        FrameLayout.LayoutParams loadingParams = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT, dp(42));
+        loadingParams.gravity = Gravity.CENTER;
+        loadingParams.leftMargin = dp(24);
+        loadingParams.rightMargin = dp(24);
+        root.addView(loadingView, loadingParams);
+
         setContentView(root);
     }
 
+    private void reloadDataAsync() {
+        if (loading || repository == null || launcherView == null) return;
+        loading = true;
+        if (loadingView != null) loadingView.setVisibility(View.VISIBLE);
+
+        loader.execute(() -> {
+            try {
+                List<AppEntry> loadedApps = repository.loadApps();
+                List<WebShortcut> loadedShortcuts = repository.loadShortcuts();
+                List<String> loadedFavorites = repository.getFavoriteKeys(loadedApps);
+
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    apps = loadedApps;
+                    shortcuts = loadedShortcuts;
+                    favoriteKeys = loadedFavorites;
+                    launcherView.setData(apps, shortcuts, favoriteKeys);
+                    if (loadingView != null) loadingView.setVisibility(View.GONE);
+                    loading = false;
+                });
+            } catch (Throwable t) {
+                runOnUiThread(() -> {
+                    if (loadingView != null) {
+                        loadingView.setText("Couldn't load apps — tap to retry");
+                        loadingView.setOnClickListener(v -> {
+                            loadingView.setText("Loading apps…");
+                            loading = false;
+                            reloadDataAsync();
+                        });
+                    }
+                    loading = false;
+                    Toast.makeText(this, "Flow Launcher hit a startup error", Toast.LENGTH_LONG).show();
+                });
+            }
+        });
+    }
+
     private void reloadData() {
-        apps = repository.loadApps();
-        shortcuts = repository.loadShortcuts();
-        favoriteKeys = repository.getFavoriteKeys(apps);
-        launcherView.setData(apps, shortcuts, favoriteKeys);
+        reloadDataAsync();
     }
 
     @Override
