@@ -143,8 +143,8 @@ public final class LauncherView extends View {
         Calendar now = Calendar.getInstance();
         String time = new SimpleDateFormat("HH:mm", Locale.getDefault()).format(now.getTime());
         String date = new SimpleDateFormat("EEEE, d MMMM", Locale.getDefault()).format(now.getTime());
-        text.setTypeface(android.graphics.Typeface.create("sans-serif", 0));
-        text.setTextSize(sp(42));
+        text.setTypeface(android.graphics.Typeface.create("sans-serif-thin", 0));
+        text.setTextSize(sp(39));
         text.setColor(Color.WHITE);
         text.setShadowLayer(dp(7), 0, dp(2), 0x66000000);
         c.drawText(time, dp(26), dp(74), text);
@@ -173,7 +173,7 @@ public final class LauncherView extends View {
                 drawGlobe(c, x, y, iconSize, a);
             }
             paint.setAlpha(255);
-            text.setTypeface(android.graphics.Typeface.create("sans-serif-medium", 0));
+            text.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", 0));
             text.setTextSize(sp(20));
             text.setColor(alpha(Color.WHITE, clamp((int)(245 * a))));
             String label = item.app != null ? item.app.label : item.shortcut.name;
@@ -182,12 +182,14 @@ public final class LauncherView extends View {
     }
 
     private void drawBottom(Canvas c, float a) {
-        float y = getHeight() - dp(92);
-        text.setTypeface(android.graphics.Typeface.create("sans-serif-medium", 0));
+        float y = getHeight() - dp(74);
+        text.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", 0));
         text.setTextSize(sp(15));
         text.setColor(alpha(Color.WHITE, clamp((int)(215 * a))));
-        c.drawText("⌕  Search", dp(28), y, text);
-        String add = "+  Website";
+        text.setTextSize(sp(13));
+        text.setColor(alpha(Color.WHITE, clamp((int)(150 * a))));
+        c.drawText("↑ search", dp(28), y, text);
+        String add = "+ website";
         c.drawText(add, getWidth() - dp(30) - text.measureText(add), y, text);
     }
 
@@ -195,7 +197,7 @@ public final class LauncherView extends View {
         float top = alphabetTop(), bottom = alphabetBottom();
         float step = (bottom - top) / 25f;
         float x = getWidth() - dp(16);
-        text.setTypeface(android.graphics.Typeface.create("sans-serif-medium", 0));
+        text.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", 0));
         text.setTextAlign(Paint.Align.CENTER);
         for (int i = 0; i < 26; i++) {
             char ch = LETTERS.charAt(i);
@@ -222,7 +224,7 @@ public final class LauncherView extends View {
         float start = dp(156), row = overlayRowHeight();
         int max = Math.min(visibleApps.size(), maxOverlayRows());
         if (mode == SEARCH) {
-            text.setTypeface(android.graphics.Typeface.create("sans-serif-medium", 0));
+            text.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", 0));
             text.setTextSize(sp(14));
             text.setColor(alpha(Color.WHITE, (int)(185 * overlay)));
             c.drawText(query.isEmpty() ? "All apps" : "Results for “" + shorten(query, 22) + "”", dp(28), dp(133), text);
@@ -252,7 +254,7 @@ public final class LauncherView extends View {
                 c.drawBitmap(app.icon, null, rect, paint);
                 paint.setAlpha(255);
             }
-            text.setTypeface(android.graphics.Typeface.create("sans-serif-medium", 0));
+            text.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", 0));
             text.setTextSize(sp(20));
             text.setColor(alpha(Color.WHITE, clamp((int)(250 * p))));
             c.drawText(shorten(app.label, 24), dp(89) + slide, cy + dp(7), text);
@@ -365,7 +367,7 @@ public final class LauncherView extends View {
     }
 
     private boolean handleBottom(float x, float y) {
-        if (mode != HOME || y < getHeight() - dp(130) || callback == null) return false;
+        if (mode != HOME || y < getHeight() - dp(115) || callback == null) return false;
         if (x < getWidth() * .52f) callback.requestSearch(); else callback.requestAddShortcut();
         return true;
     }
