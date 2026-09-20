@@ -193,40 +193,43 @@ public final class LauncherView extends View {
     }
 
     private void drawBottom(Canvas c, float a) {
-        float cy = getHeight() - dp(58);
-        float phoneX = dp(48);
-        float cameraX = getWidth() - dp(48);
+        float top = getHeight() - dp(92);
+        float bottom = getHeight() - dp(24);
+        float left = dp(20);
+        float right = getWidth() - dp(20);
 
-        drawDockButton(c, phoneX, cy, false, a);
-        drawDockButton(c, cameraX, cy, true, a);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(alpha(Color.BLACK, clamp((int)(150 * a))));
+        rect.set(left, top, right, bottom);
+        c.drawRoundRect(rect, dp(25), dp(25), paint);
 
-        text.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", 0));
-        text.setTextSize(sp(12.5f));
-        text.setColor(alpha(Color.WHITE, clamp((int)(155 * a))));
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(dp(1));
+        paint.setColor(alpha(Color.WHITE, clamp((int)(42 * a))));
+        c.drawRoundRect(rect, dp(25), dp(25), paint);
+        paint.setStyle(Paint.Style.FILL);
 
-        c.drawText("↑ search", dp(91), cy + dp(4), text);
-        String add = "+ website";
-        c.drawText(add, getWidth() - dp(91) - text.measureText(add), cy + dp(4), text);
+        float width = right - left;
+        float cy = (top + bottom) / 2f;
+        float xPhone = left + width * .125f;
+        float xSearch = left + width * .375f;
+        float xWeb = left + width * .625f;
+        float xCamera = left + width * .875f;
+
+        drawDockGlyph(c, xPhone, cy, 0, a);
+        drawDockGlyph(c, xSearch, cy, 1, a);
+        drawDockGlyph(c, xWeb, cy, 2, a);
+        drawDockGlyph(c, xCamera, cy, 3, a);
     }
 
-    private void drawDockButton(Canvas c, float cx, float cy, boolean camera, float a) {
-        float r = dp(23);
-        paint.setStyle(Paint.Style.FILL);
-        paint.setColor(alpha(Color.BLACK, clamp((int)(165 * a))));
-        c.drawCircle(cx, cy, r, paint);
-
+    private void drawDockGlyph(Canvas c, float cx, float cy, int type, float a) {
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(dp(1.8f));
         paint.setStrokeCap(Paint.Cap.ROUND);
         paint.setStrokeJoin(Paint.Join.ROUND);
-        paint.setColor(alpha(Color.WHITE, clamp((int)(235 * a))));
+        paint.setColor(alpha(Color.WHITE, clamp((int)(230 * a))));
 
-        if (camera) {
-            rect.set(cx - dp(9), cy - dp(7), cx + dp(9), cy + dp(8));
-            c.drawRoundRect(rect, dp(3), dp(3), paint);
-            c.drawCircle(cx, cy + dp(.5f), dp(4), paint);
-            c.drawLine(cx - dp(4), cy - dp(9), cx + dp(3), cy - dp(9), paint);
-        } else {
+        if (type == 0) {
             Path p = new Path();
             p.moveTo(cx - dp(8), cy - dp(10));
             p.cubicTo(cx - dp(11), cy - dp(6), cx - dp(7), cy + dp(4), cx, cy + dp(9));
@@ -237,6 +240,21 @@ public final class LauncherView extends View {
             p.cubicTo(cx - dp(5), cy - dp(6), cx - dp(2), cy - dp(6), cx - dp(3), cy - dp(8));
             p.close();
             c.drawPath(p, paint);
+        } else if (type == 1) {
+            c.drawCircle(cx - dp(2), cy - dp(2), dp(7), paint);
+            c.drawLine(cx + dp(4), cy + dp(4), cx + dp(10), cy + dp(10), paint);
+        } else if (type == 2) {
+            c.drawCircle(cx, cy, dp(8), paint);
+            c.drawLine(cx - dp(8), cy, cx + dp(8), cy, paint);
+            c.drawOval(new RectF(cx - dp(4), cy - dp(8), cx + dp(4), cy + dp(8)), paint);
+            paint.setStyle(Paint.Style.FILL);
+            c.drawCircle(cx + dp(9), cy - dp(8), dp(2.5f), paint);
+            paint.setStyle(Paint.Style.STROKE);
+        } else {
+            rect.set(cx - dp(9), cy - dp(7), cx + dp(9), cy + dp(8));
+            c.drawRoundRect(rect, dp(3), dp(3), paint);
+            c.drawCircle(cx, cy + dp(.5f), dp(4), paint);
+            c.drawLine(cx - dp(4), cy - dp(9), cx + dp(3), cy - dp(9), paint);
         }
 
         paint.setStyle(Paint.Style.FILL);
@@ -527,20 +545,19 @@ public final class LauncherView extends View {
     }
 
     private boolean handleBottom(float x, float y) {
-        if (mode != HOME || y < getHeight() - dp(100) || callback == null) return false;
+        if (mode != HOME || y < getHeight() - dp(110) || callback == null) return false;
 
-        float cy = getHeight() - dp(58);
-        if (distance(x, y, dp(48), cy) <= dp(32)) {
-            callback.requestPhone();
-            return true;
-        }
-        if (distance(x, y, getWidth() - dp(48), cy) <= dp(32)) {
-            callback.requestCamera();
-            return true;
-        }
+        float left = dp(20);
+        float right = getWidth() - dp(20);
+        float width = right - left;
+        float relative = Math.max(0f, Math.min(width, x - left));
+        int zone = Math.min(3, (int)(relative / (width / 4f)));
 
-        if (x < getWidth() * .50f) callback.requestSearch();
-        else callback.requestAddShortcut();
+        if (zone == 0) callback.requestPhone();
+        else if (zone == 1) callback.requestSearch();
+        else if (zone == 2) callback.requestAddShortcut();
+        else callback.requestCamera();
+
         return true;
     }
 
