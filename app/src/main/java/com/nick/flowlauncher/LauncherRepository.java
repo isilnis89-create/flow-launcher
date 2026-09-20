@@ -32,6 +32,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -42,6 +43,7 @@ public final class LauncherRepository {
     private static final String PREFS = "flow_launcher";
     private static final String KEY_FAVORITES = "favorites";
     private static final String KEY_SHORTCUTS = "shortcuts";
+    private static final String KEY_FAVORITE_META = "favorite_meta";
 
     private final Context context;
     private final SharedPreferences prefs;
@@ -128,6 +130,90 @@ public final class LauncherRepository {
         JSONArray array = new JSONArray();
         for (String key : keys) array.put(key);
         prefs.edit().putString(KEY_FAVORITES, array.toString()).apply();
+    }
+
+    public Map<String, FavoriteOverride> loadFavoriteOverrides() {
+        Map<String, FavoriteOverride> out = new HashMap<>();
+        String raw = prefs.getString(KEY_FAVORITE_META, "{}");
+        try {
+            JSONObject root = new JSONObject(raw);
+            Iterator<String> keys = root.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
+                JSONObject obj = root.optJSONObject(key);
+                if (obj == null) continue;
+                String name = obj.optString("name", "");
+                Bitmap icon = loadFavoriteIcon(key);
+                out.put(key, new FavoriteOverride(name, icon));
+            }
+        } catch (JSONException ignored) {
+        }
+        return out;
+    }
+
+    public void saveFavoriteName(String key, String name) {
+        if (key == null || key.isEmpty()) return;
+        JSONObject root = favoriteMetaRoot();
+        JSONObject obj = root.optJSONObject(key);
+        if (obj == null) obj = new JSONObject();
+        try {
+            if (name == null || name.trim().isEmpty()) obj.remove("name");
+            else obj.put("name", name.trim());
+            root.put(key, obj);
+        } catch (JSONException ignored) {
+        }
+        prefs.edit().putString(KEY_FAVORITE_META, root.toString()).apply();
+    }
+
+    public void saveFavoriteIcon(String key, Bitmap bitmap) {
+        if (key == null || key.isEmpty() || bitmap == null) return;
+        File file = favoriteIconFile(key);
+        try (FileOutputStream out = new FileOutputStream(file)) {
+            bitmap.compress(Bitmap.CompressFormat.PNG, 95, out);
+        } catch (IOException ignored) {
+            return;
+        }
+
+        JSONObject root = favoriteMetaRoot();
+        JSONObject obj = root.optJSONObject(key);
+        if (obj == null) obj = new JSONObject();
+        try {
+            obj.put("customIcon", true);
+            root.put(key, obj);
+        } catch (JSONException ignored) {
+        }
+        prefs.edit().putString(KEY_FAVORITE_META, root.toString()).apply();
+    }
+
+    public void resetFavoriteOverride(String key) {
+        if (key == null || key.isEmpty()) return;
+        JSONObject root = favoriteMetaRoot();
+        root.remove(key);
+        prefs.edit().putString(KEY_FAVORITE_META, root.toString()).apply();
+        File icon = favoriteIconFile(key);
+        if (icon.exists()) icon.delete();
+    }
+
+    private JSONObject favoriteMetaRoot() {
+        try {
+            return new JSONObject(prefs.getString(KEY_FAVORITE_META, "{}"));
+        } catch (JSONException e) {
+            return new JSONObject();
+        }
+    }
+
+    private Bitmap loadFavoriteIcon(String key) {
+        File file = favoriteIconFile(key);
+        if (!file.exists()) return null;
+        try (FileInputStream input = new FileInputStream(file)) {
+            return android.graphics.BitmapFactory.decodeStream(input);
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    private File favoriteIconFile(String key) {
+        return new File(context.getFilesDir(), "favorite_" + Integer.toHexString(key.hashCode()) + ".png");
     }
 
     public List<WebShortcut> loadShortcuts() {
