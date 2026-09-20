@@ -127,12 +127,12 @@ public final class LauncherView extends View {
         paint.setColor(0x18000000);
         c.drawRect(0, 0, getWidth(), getHeight(), paint);
         if (overlay > 0f) {
-            paint.setColor(alpha(Color.BLACK, (int)(112 * overlay)));
+            paint.setColor(alpha(Color.BLACK, (int)(228 * overlay)));
             c.drawRect(0, 0, getWidth(), getHeight(), paint);
         }
 
         drawClock(c);
-        float homeAlpha = 1f - .74f * overlay;
+        float homeAlpha = Math.max(0f, 1f - 1.35f * overlay);
         drawFavorites(c, homeAlpha);
         drawBottom(c, homeAlpha);
         drawAlphabet(c);
