@@ -320,6 +320,94 @@ public final class LauncherView extends View {
             label = item.shortcut.name;
         }
         c.drawText(shorten(label, 25), dp(75), cy + dp(5.5f), text);
+
+        if (item.app != null) {
+            FlowNotificationInfo info = notifications.get(item.app.component.getPackageName());
+            if (info != null && info.count > 0) {
+                float bx = getWidth() - dp(84);
+                paint.setColor(alpha(accentColor, clamp((int)(225 * a))));
+                c.drawCircle(bx, cy, dp(info.count > 9 ? 8.5f : 7.5f), paint);
+                text.setTextAlign(Paint.Align.CENTER);
+                text.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.BOLD));
+                text.setTextSize(sp(9.5f));
+                text.setColor(alpha(Color.BLACK, clamp((int)(235 * a))));
+                c.drawText(info.count > 9 ? "9+" : String.valueOf(info.count), bx, cy + dp(3.2f), text);
+                text.setTextAlign(Paint.Align.LEFT);
+            }
+        }
+    }
+
+    private void drawTidal(Canvas c, float a) {
+        float top = getHeight() - dp(122);
+        float bottom = getHeight() - dp(88);
+        float left = dp(20);
+        float right = getWidth() - dp(20);
+
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(alpha(Color.BLACK, clamp((int)(145 * a))));
+        rect.set(left, top, right, bottom);
+        c.drawRoundRect(rect, dp(17), dp(17), paint);
+
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(dp(1));
+        paint.setColor(alpha(accentColor, clamp((int)(70 * a))));
+        c.drawRoundRect(rect, dp(17), dp(17), paint);
+        paint.setStyle(Paint.Style.FILL);
+
+        if (tidalState.artwork != null) {
+            rect.set(left + dp(4), top + dp(4), left + dp(30), bottom - dp(4));
+            paint.setAlpha(clamp((int)(245 * a)));
+            c.drawBitmap(tidalState.artwork, null, rect, paint);
+            paint.setAlpha(255);
+        }
+
+        text.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.BOLD));
+        text.setTextSize(sp(9.5f));
+        text.setColor(alpha(accentColor, clamp((int)(220 * a))));
+        c.drawText("TIDAL", left + dp(36), top + dp(11.5f), text);
+
+        text.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", 0));
+        text.setTextSize(sp(12.5f));
+        text.setColor(alpha(Color.WHITE, clamp((int)(235 * a))));
+        String title = tidalState.title == null ? "" : tidalState.title;
+        String artist = tidalState.artist == null ? "" : tidalState.artist;
+        String line = title;
+        if (!artist.isEmpty()) line += "  ·  " + artist;
+        c.drawText(shorten(line, 30), left + dp(36), top + dp(27), text);
+
+        float controlsLeft = right - dp(102);
+        drawMediaGlyph(c, controlsLeft + dp(16), (top + bottom) / 2f, 0, a);
+        drawMediaGlyph(c, controlsLeft + dp(51), (top + bottom) / 2f, tidalState.playing ? 1 : 2, a);
+        drawMediaGlyph(c, controlsLeft + dp(86), (top + bottom) / 2f, 3, a);
+    }
+
+    private void drawMediaGlyph(Canvas c, float cx, float cy, int type, float a) {
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(dp(1.7f));
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        paint.setStrokeJoin(Paint.Join.ROUND);
+        paint.setColor(alpha(Color.WHITE, clamp((int)(225 * a))));
+
+        if (type == 0) {
+            c.drawLine(cx + dp(5), cy - dp(7), cx - dp(4), cy, paint);
+            c.drawLine(cx - dp(4), cy, cx + dp(5), cy + dp(7), paint);
+            c.drawLine(cx - dp(6), cy - dp(7), cx - dp(6), cy + dp(7), paint);
+        } else if (type == 1) {
+            c.drawLine(cx - dp(4), cy - dp(7), cx - dp(4), cy + dp(7), paint);
+            c.drawLine(cx + dp(4), cy - dp(7), cx + dp(4), cy + dp(7), paint);
+        } else if (type == 2) {
+            Path p = new Path();
+            p.moveTo(cx - dp(5), cy - dp(8));
+            p.lineTo(cx + dp(7), cy);
+            p.lineTo(cx - dp(5), cy + dp(8));
+            p.close();
+            c.drawPath(p, paint);
+        } else {
+            c.drawLine(cx - dp(5), cy - dp(7), cx + dp(4), cy, paint);
+            c.drawLine(cx + dp(4), cy, cx - dp(5), cy + dp(7), paint);
+            c.drawLine(cx + dp(6), cy - dp(7), cx + dp(6), cy + dp(7), paint);
+        }
+        paint.setStyle(Paint.Style.FILL);
     }
 
     private void drawBottom(Canvas c, float a) {
@@ -410,7 +498,7 @@ public final class LauncherView extends View {
             float letterX = baseX - dp(24) * wave;
             float size = 8.5f + 5.5f * wave;
 
-            int idleAlpha = hasApps ? 92 : 38;
+            int idleAlpha = (int)((hasApps ? 92 : 38) * (1f - .78f * ambient));
             int alphaValue = on ? 255 : (letterMode ? (int)(112 + 92 * wave) : idleAlpha);
 
             text.setTextSize(sp(size));
@@ -484,9 +572,10 @@ public final class LauncherView extends View {
             float proximity = Math.max(0f, 1f - distance / (row * 3.2f));
             float entrance = ease.getInterpolation(Math.max(0f, Math.min(1f, overlay * 1.18f - i * .025f)));
 
-            float itemAlpha = entrance * (.84f + .16f * proximity);
+            float switchIn = .72f + .28f * letterTransition;
+            float itemAlpha = entrance * (.84f + .16f * proximity) * switchIn;
             float scale = .93f + .07f * proximity;
-            float pull = dp(24) * proximity;
+            float pull = dp(24) * proximity + dp(13) * (1f - letterTransition);
             float iconSize = dp(46) * scale;
             float iconX = dp(28) + pull;
             float labelX = dp(89) + pull;
