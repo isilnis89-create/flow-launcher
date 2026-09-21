@@ -216,46 +216,71 @@ public final class LauncherView extends View {
         float row = homeRowHeight();
         int max = Math.min(favorites.size(), maxHomeRows());
 
+        if (draggingFavorite && dragTargetIndex >= 0) {
+            float markerY = start + dragTargetIndex * row;
+            paint.setColor(alpha(accentColor, clamp((int)(135 * a))));
+            c.drawRoundRect(new RectF(dp(74), markerY - dp(1), getWidth() - dp(78), markerY + dp(1)),
+                    dp(1), dp(1), paint);
+        }
+
         for (int i = 0; i < max; i++) {
+            if (draggingFavorite && i == dragStartIndex) continue;
             FavoriteItem item = favorites.get(i);
-            float cy = start + i * row - dp(12) * overlay;
-            float scale = homePressed && pressed == i ? .93f : 1f;
+            float cy = start + i * row - dp(10) * overlay;
+            drawFavoriteItem(c, item, i, cy, a, 1f);
+        }
 
-            float iconSize = Math.min(dp(39), row * .78f) * scale;
-            float slot = dp(40);
-            float x = dp(25) + (slot - iconSize) / 2f;
-            float y = cy - iconSize / 2f;
-            FavoriteOverride favoriteOverride = item.app != null ? favoriteOverrides.get(item.app.key()) : null;
-            Bitmap icon = item.app != null
-                    ? (favoriteOverride != null && favoriteOverride.icon != null ? favoriteOverride.icon : item.app.icon)
-                    : item.shortcut.icon;
-
-            paint.setAlpha(clamp((int)(255 * a)));
-            if (icon != null) {
-                rect.set(x, y, x + iconSize, y + iconSize);
-                c.drawBitmap(icon, null, rect, paint);
-            } else {
-                drawGlobe(c, x, y, iconSize, a);
-            }
-            paint.setAlpha(255);
-
-            text.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", 0));
-            text.setTextSize(sp(row < dp(40) ? 16.5f : 18.5f));
-            text.setColor(alpha(Color.WHITE, clamp((int)(245 * a))));
-            String label;
-            if (item.app != null) {
-                label = favoriteOverride != null && favoriteOverride.name != null && !favoriteOverride.name.isEmpty()
-                        ? favoriteOverride.name : item.app.label;
-            } else {
-                label = item.shortcut.name;
-            }
-            c.drawText(shorten(label, 24), dp(79), cy + dp(6), text);
+        if (draggingFavorite && dragStartIndex >= 0 && dragStartIndex < favorites.size()) {
+            FavoriteItem item = favorites.get(dragStartIndex);
+            float liftScale = 1.07f;
+            paint.setColor(alpha(Color.BLACK, clamp((int)(75 * a))));
+            rect.set(dp(18), dragY - row * .50f, getWidth() - dp(70), dragY + row * .50f);
+            c.drawRoundRect(rect, dp(16), dp(16), paint);
+            drawFavoriteItem(c, item, dragStartIndex, dragY, a, liftScale);
         }
     }
 
+    private void drawFavoriteItem(Canvas c, FavoriteItem item, int index, float cy, float a, float extraScale) {
+        float row = homeRowHeight();
+        float pressScale = homePressed && pressed == index && !draggingFavorite ? .94f : 1f;
+        float scale = pressScale * extraScale;
+
+        float iconSize = Math.min(dp(36), row * .76f) * scale;
+        float slot = dp(38);
+        float x = dp(24) + (slot - iconSize) / 2f;
+        float y = cy - iconSize / 2f;
+
+        FavoriteOverride favoriteOverride = item.app != null ? favoriteOverrides.get(item.app.key()) : null;
+        Bitmap icon = item.app != null
+                ? (favoriteOverride != null && favoriteOverride.icon != null ? favoriteOverride.icon : item.app.icon)
+                : item.shortcut.icon;
+
+        paint.setAlpha(clamp((int)(255 * a)));
+        if (icon != null) {
+            rect.set(x, y, x + iconSize, y + iconSize);
+            c.drawBitmap(icon, null, rect, paint);
+        } else {
+            drawGlobe(c, x, y, iconSize, a);
+        }
+        paint.setAlpha(255);
+
+        text.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", 0));
+        text.setTextSize(sp(row < dp(36) ? 15.5f : 17.5f));
+        text.setColor(alpha(Color.WHITE, clamp((int)(246 * a))));
+
+        String label;
+        if (item.app != null) {
+            label = favoriteOverride != null && favoriteOverride.name != null && !favoriteOverride.name.isEmpty()
+                    ? favoriteOverride.name : item.app.label;
+        } else {
+            label = item.shortcut.name;
+        }
+        c.drawText(shorten(label, 25), dp(75), cy + dp(5.5f), text);
+    }
+
     private void drawBottom(Canvas c, float a) {
-        float top = getHeight() - dp(92);
-        float bottom = getHeight() - dp(24);
+        float top = getHeight() - dp(80);
+        float bottom = getHeight() - dp(22);
         float left = dp(20);
         float right = getWidth() - dp(20);
 
@@ -266,7 +291,7 @@ public final class LauncherView extends View {
 
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(dp(1));
-        paint.setColor(alpha(Color.WHITE, clamp((int)(42 * a))));
+        paint.setColor(alpha(accentColor, clamp((int)(65 * a))));
         c.drawRoundRect(rect, dp(25), dp(25), paint);
         paint.setStyle(Paint.Style.FILL);
 
