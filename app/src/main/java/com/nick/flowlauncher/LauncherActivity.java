@@ -12,6 +12,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Build;
 import android.provider.Settings;
+import android.provider.AlarmClock;
 import android.provider.MediaStore;
 import android.text.Editable;
 import android.text.TextWatcher;
@@ -73,6 +74,7 @@ public final class LauncherActivity extends Activity implements LauncherView.Cal
         configureWindow();
         repository = new LauncherRepository(this);
         buildUi();
+        launcherView.setAccentColor(repository.getAccentColor());
         if (Build.VERSION.SDK_INT >= 33) {
             getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                     OnBackInvokedDispatcher.PRIORITY_DEFAULT,
@@ -433,6 +435,40 @@ public final class LauncherActivity extends Activity implements LauncherView.Cal
         }
 
         Toast.makeText(this, "Couldn't open the camera", Toast.LENGTH_SHORT).show();
+    }
+
+    @Override
+    public void requestClock() {
+        try {
+            Intent alarms = new Intent(AlarmClock.ACTION_SHOW_ALARMS);
+            startActivity(alarms);
+            return;
+        } catch (Throwable ignored) {
+        }
+
+        try {
+            Intent samsungClock = getPackageManager().getLaunchIntentForPackage("com.sec.android.app.clockpackage");
+            if (samsungClock != null) {
+                startActivity(samsungClock);
+                return;
+            }
+        } catch (Throwable ignored) {
+        }
+
+        Toast.makeText(this, "Couldn't open the clock app", Toast.LENGTH_SHORT).show();
+    }
+
+    @Override
+    public void reorderFavorite(String key, int targetIndex) {
+        if (key == null) return;
+        int current = favoriteKeys.indexOf(key);
+        if (current < 0) return;
+
+        String item = favoriteKeys.remove(current);
+        int target = Math.max(0, Math.min(targetIndex, favoriteKeys.size()));
+        favoriteKeys.add(target, item);
+        repository.saveFavoriteKeys(favoriteKeys);
+        launcherView.setData(apps, shortcuts, favoriteKeys, favoriteOverrides);
     }
 
     @Override
