@@ -4,8 +4,13 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.role.RoleManager;
 import android.content.ActivityNotFoundException;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.IntentFilter;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.LauncherApps;
+import android.content.pm.ShortcutInfo;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
@@ -63,6 +68,12 @@ public final class LauncherActivity extends Activity implements LauncherView.Cal
     private volatile boolean loading = false;
     private boolean firstResume = true;
     private TextView loadingView;
+    private boolean packageReceiverRegistered;
+    private final BroadcastReceiver packageReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            if (!loading) reloadDataAsync();
+        }
+    };
     private final Handler stateHandler = new Handler(Looper.getMainLooper());
     private final Runnable statePoller = new Runnable() {
         @Override public void run() {
@@ -95,6 +106,7 @@ public final class LauncherActivity extends Activity implements LauncherView.Cal
                     OnBackInvokedDispatcher.PRIORITY_DEFAULT,
                     this::handleBack);
         }
+        registerPackageReceiver();
         launcherView.postDelayed(this::reloadDataAsync, 250);
         launcherView.postDelayed(this::requestHomeRoleIfNeeded, 800);
         launcherView.postDelayed(this::maybePromptNotificationAccess, 2600);
@@ -169,6 +181,24 @@ public final class LauncherActivity extends Activity implements LauncherView.Cal
         }
     }
 
+    private void registerPackageReceiver() {
+        if (packageReceiverRegistered) return;
+        try {
+            IntentFilter filter = new IntentFilter();
+            filter.addAction(Intent.ACTION_PACKAGE_ADDED);
+            filter.addAction(Intent.ACTION_PACKAGE_REMOVED);
+            filter.addAction(Intent.ACTION_PACKAGE_CHANGED);
+            filter.addDataScheme("package");
+            if (Build.VERSION.SDK_INT >= 33) {
+                registerReceiver(packageReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+            } else {
+                registerReceiver(packageReceiver, filter);
+            }
+            packageReceiverRegistered = true;
+        } catch (Throwable ignored) {
+        }
+    }
+
     private void requestHomeRoleIfNeeded() {
         if (isFinishing() || isDestroyed()) return;
 
@@ -221,6 +251,10 @@ public final class LauncherActivity extends Activity implements LauncherView.Cal
     @Override
     protected void onDestroy() {
         stateHandler.removeCallbacksAndMessages(null);
+        if (packageReceiverRegistered) {
+            try { unregisterReceiver(packageReceiver); } catch (Throwable ignored) { }
+            packageReceiverRegistered = false;
+        }
         loader.shutdownNow();
         super.onDestroy();
     }
@@ -380,6 +414,7 @@ public final class LauncherActivity extends Activity implements LauncherView.Cal
         String[] actions = {
                 "Rename",
                 "Change icon",
+                "App shortcuts",
                 "Move up",
                 "Move down",
                 "Reset name & icon",
@@ -391,18 +426,72 @@ public final class LauncherActivity extends Activity implements LauncherView.Cal
                 .setItems(actions, (dialog, which) -> {
                     if (which == 0) showRenameFavoriteDialog(app);
                     else if (which == 1) pickFavoriteIcon(app);
-                    else if (which == 2) moveFavorite(key, -1);
-                    else if (which == 3) moveFavorite(key, 1);
-                    else if (which == 4) {
+                    else if (which == 2) showAppShortcuts(app);
+                    else if (which == 3) moveFavorite(key, -1);
+                    else if (which == 4) moveFavorite(key, 1);
+                    else if (which == 5) {
                         repository.resetFavoriteOverride(key);
                         refreshFavoriteOverrides();
-                    } else if (which == 5) {
+                    } else if (which == 6) {
                         favoriteKeys.remove(key);
                         repository.saveFavoriteKeys(favoriteKeys);
                         launcherView.setData(apps, shortcuts, favoriteKeys, favoriteOverrides);
                     }
                 })
                 .show();
+    }
+
+    private void showAppShortcuts(AppEntry app) {
+        if (app == null || Build.VERSION.SDK_INT < 25) return;
+        try {
+            LauncherApps launcherApps = getSystemService(LauncherApps.class);
+            if (launcherApps == null || !launcherApps.hasShortcutHostPermission()) {
+                Toast.makeText(this, "App shortcuts require Flow to be the default launcher", Toast.LENGTH_LONG).show();
+                return;
+            }
+
+            LauncherApps.ShortcutQuery query = new LauncherApps.ShortcutQuery()
+                    .setPackage(app.component.getPackageName())
+                    .setQueryFlags(
+                            LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC
+                                    | LauncherApps.ShortcutQuery.FLAG_MATCH_MANIFEST
+                                    | LauncherApps.ShortcutQuery.FLAG_MATCH_PINNED);
+
+            List<ShortcutInfo> found = launcherApps.getShortcuts(query, android.os.Process.myUserHandle());
+            if (found == null) found = new ArrayList<>();
+
+            List<ShortcutInfo> usable = new ArrayList<>();
+            for (ShortcutInfo info : found) {
+                if (info != null && info.isEnabled()) usable.add(info);
+            }
+
+            if (usable.isEmpty()) {
+                Toast.makeText(this, "This app doesn't publish any launcher shortcuts", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            CharSequence[] labels = new CharSequence[usable.size()];
+            for (int i = 0; i < usable.size(); i++) {
+                ShortcutInfo info = usable.get(i);
+                CharSequence label = info.getShortLabel();
+                if (label == null || label.length() == 0) label = info.getLongLabel();
+                labels[i] = label == null ? "Shortcut" : label;
+            }
+
+            List<ShortcutInfo> finalUsable = usable;
+            new AlertDialog.Builder(this)
+                    .setTitle(app.label)
+                    .setItems(labels, (dialog, which) -> {
+                        try {
+                            launcherApps.startShortcut(finalUsable.get(which), null, null);
+                        } catch (Throwable t) {
+                            Toast.makeText(this, "Couldn't open that shortcut", Toast.LENGTH_SHORT).show();
+                        }
+                    })
+                    .show();
+        } catch (Throwable t) {
+            Toast.makeText(this, "App shortcuts aren't available for this app", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void showRenameFavoriteDialog(AppEntry app) {
