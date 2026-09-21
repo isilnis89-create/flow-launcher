@@ -537,6 +537,124 @@ public final class LauncherActivity extends Activity implements LauncherView.Cal
     }
 
     @Override
+    public void requestNotificationPeek(String packageName) {
+        if (packageName == null) return;
+        FlowNotificationInfo info = FlowNotificationService.notificationSnapshot().get(packageName);
+        if (info == null || info.count <= 0) {
+            Toast.makeText(this, "No notification to show", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        String title = info.title == null || info.title.isEmpty() ? "Notification" : info.title;
+        String message = info.text == null ? "" : info.text;
+
+        new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setMessage(message)
+                .setNegativeButton("Close", null)
+                .setPositiveButton("Open app", (dialog, which) -> {
+                    try {
+                        Intent launch = getPackageManager().getLaunchIntentForPackage(packageName);
+                        if (launch != null) startActivity(launch);
+                    } catch (Throwable ignored) {
+                    }
+                })
+                .show();
+    }
+
+    @Override
+    public void requestFlowSettings() {
+        showFlowSettings();
+    }
+
+    private void showFlowSettings() {
+        boolean ambient = uiPrefs().getBoolean("ambient_enabled", true);
+        int density = uiPrefs().getInt("favorite_density", 16);
+        int iconStyle = repository.getIconStyle();
+
+        String[] rows = {
+                "Icon style  ·  " + iconStyleName(iconStyle),
+                "Favourite density  ·  " + density,
+                "Ambient mode  ·  " + (ambient ? "On" : "Off"),
+                "Notification / Tidal access  ·  " + (hasNotificationAccess() ? "Enabled" : "Disabled"),
+                "Default Home app settings"
+        };
+
+        new AlertDialog.Builder(this)
+                .setTitle("Flow settings")
+                .setItems(rows, (dialog, which) -> {
+                    if (which == 0) showIconStylePicker();
+                    else if (which == 1) showDensityPicker();
+                    else if (which == 2) {
+                        boolean next = !uiPrefs().getBoolean("ambient_enabled", true);
+                        uiPrefs().edit().putBoolean("ambient_enabled", next).apply();
+                        applyViewPreferences();
+                    } else if (which == 3) {
+                        openNotificationAccessSettings();
+                    } else {
+                        requestLauncherSettings();
+                    }
+                })
+                .show();
+    }
+
+    private String iconStyleName(int style) {
+        if (style == LauncherRepository.ICON_MONO) return "Monochrome";
+        if (style == LauncherRepository.ICON_ORIGINAL) return "Original";
+        return "Flow duotone";
+    }
+
+    private void showIconStylePicker() {
+        String[] styles = {"Flow duotone", "Monochrome", "Original"};
+        int current = repository.getIconStyle();
+        new AlertDialog.Builder(this)
+                .setTitle("Icon style")
+                .setSingleChoiceItems(styles, current, (dialog, which) -> {
+                    repository.setIconStyle(which);
+                    dialog.dismiss();
+                    reloadDataAsync();
+                })
+                .show();
+    }
+
+    private void showDensityPicker() {
+        String[] labels = {"Comfortable · 12", "Balanced · 16", "Maximum · 18"};
+        int[] values = {12, 16, 18};
+        int currentValue = uiPrefs().getInt("favorite_density", 16);
+        int checked = currentValue <= 13 ? 0 : (currentValue >= 18 ? 2 : 1);
+
+        new AlertDialog.Builder(this)
+                .setTitle("Favourite density")
+                .setSingleChoiceItems(labels, checked, (dialog, which) -> {
+                    uiPrefs().edit().putInt("favorite_density", values[which]).apply();
+                    applyViewPreferences();
+                    dialog.dismiss();
+                })
+                .show();
+    }
+
+    @Override
+    public void requestTidalAction(int action) {
+        if (!FlowNotificationService.sendTidalAction(action)) {
+            Toast.makeText(this, "Tidal control isn't available yet", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    @Override
+    public void openTidal() {
+        if (FlowNotificationService.openTidal()) return;
+        try {
+            Intent launch = getPackageManager().getLaunchIntentForPackage("com.aspiro.tidal");
+            if (launch != null) {
+                startActivity(launch);
+                return;
+            }
+        } catch (Throwable ignored) {
+        }
+        Toast.makeText(this, "Couldn't open Tidal", Toast.LENGTH_SHORT).show();
+    }
+
+    @Override
     public void requestLauncherSettings() {
         try {
             Intent intent = new Intent(Settings.ACTION_HOME_SETTINGS);
