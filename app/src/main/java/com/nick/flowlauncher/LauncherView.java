@@ -349,7 +349,7 @@ public final class LauncherView extends View {
     private void drawAlphabet(Canvas c) {
         float top = alphabetTop(), bottom = alphabetBottom();
         float step = (bottom - top) / 25f;
-        float baseX = getWidth() - dp(16);
+        float baseX = getWidth() - dp(15);
         int activeIndex = Math.max(0, LETTERS.indexOf(activeLetter));
 
         text.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", 0));
@@ -358,35 +358,49 @@ public final class LauncherView extends View {
         for (int i = 0; i < 26; i++) {
             char ch = LETTERS.charAt(i);
             boolean letterMode = mode == LETTER;
+            boolean hasApps = hasAppsForLetter(ch);
             float distance = Math.abs(i - activeIndex);
-            float wave = letterMode ? Math.max(0f, 1f - distance / 4.2f) * overlay : 0f;
+            float wave = letterMode ? Math.max(0f, 1f - distance / 4.0f) * overlay : 0f;
             boolean on = letterMode && i == activeIndex;
 
-            float letterX = baseX - dp(22) * wave;
-            float size = 9f + 5f * wave;
-            int alphaValue = on ? 255 : (int)(190 + 50 * wave);
+            float letterX = baseX - dp(24) * wave;
+            float size = 8.5f + 5.5f * wave;
+
+            int idleAlpha = hasApps ? 92 : 38;
+            int alphaValue = on ? 255 : (letterMode ? (int)(112 + 92 * wave) : idleAlpha);
 
             text.setTextSize(sp(size));
-            text.setColor(alpha(Color.WHITE, alphaValue));
+            text.setColor(on ? alpha(accentColor, 255) : alpha(Color.WHITE, alphaValue));
             c.drawText(String.valueOf(ch), letterX, top + i * step + dp(3), text);
         }
 
         text.setTextAlign(Paint.Align.LEFT);
         if (mode == LETTER && overlay > 0f) {
             float bubbleY = drawerAnchorY > 0f ? drawerAnchorY : yForLetter(activeLetter);
-            bubbleY = Math.max(dp(120), Math.min(getHeight() - dp(125), bubbleY));
-            float bubbleX = getWidth() - dp(74);
+            bubbleY = Math.max(dp(118), Math.min(getHeight() - dp(112), bubbleY));
+            float bubbleX = getWidth() - dp(76);
 
-            paint.setColor(alpha(Color.BLACK, (int)(205 * overlay)));
-            c.drawCircle(bubbleX, bubbleY, dp(28), paint);
+            paint.setColor(alpha(Color.BLACK, (int)(225 * overlay)));
+            c.drawCircle(bubbleX, bubbleY, dp(29), paint);
+
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(dp(1.4f));
+            paint.setColor(alpha(accentColor, (int)(210 * overlay)));
+            c.drawCircle(bubbleX, bubbleY, dp(29), paint);
+            paint.setStyle(Paint.Style.FILL);
 
             text.setTextAlign(Paint.Align.CENTER);
             text.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.BOLD));
             text.setTextSize(sp(24));
-            text.setColor(alpha(Color.WHITE, (int)(255 * overlay)));
+            text.setColor(alpha(accentColor, (int)(255 * overlay)));
             c.drawText(String.valueOf(activeLetter), bubbleX, bubbleY + dp(8), text);
             text.setTextAlign(Paint.Align.LEFT);
         }
+    }
+
+    private boolean hasAppsForLetter(char letter) {
+        for (AppEntry app : apps) if (app.initial == letter) return true;
+        return false;
     }
 
     private void drawApps(Canvas c) {
@@ -426,15 +440,15 @@ public final class LauncherView extends View {
             float proximity = Math.max(0f, 1f - distance / (row * 3.2f));
             float entrance = ease.getInterpolation(Math.max(0f, Math.min(1f, overlay * 1.18f - i * .025f)));
 
-            float itemAlpha = entrance * (.42f + .58f * proximity);
-            float scale = .84f + .16f * proximity;
-            float pull = dp(32) * proximity;
+            float itemAlpha = entrance * (.84f + .16f * proximity);
+            float scale = .93f + .07f * proximity;
+            float pull = dp(24) * proximity;
             float iconSize = dp(46) * scale;
             float iconX = dp(28) + pull;
             float labelX = dp(89) + pull;
 
             if (!homePressed && pressed == i) {
-                paint.setColor(alpha(Color.WHITE, (int)(24 * itemAlpha)));
+                paint.setColor(alpha(accentColor, (int)(42 * itemAlpha)));
                 rect.set(dp(18) + pull * .25f, cy - dp(27), getWidth() - dp(70), cy + dp(27));
                 c.drawRoundRect(rect, dp(17), dp(17), paint);
             }
@@ -454,7 +468,7 @@ public final class LauncherView extends View {
             if (favoriteKeys.contains(app.key())) {
                 text.setTextAlign(Paint.Align.RIGHT);
                 text.setTextSize(sp(15));
-                text.setColor(alpha(Color.WHITE, clamp((int)(135 * itemAlpha))));
+                text.setColor(alpha(accentColor, clamp((int)(190 * itemAlpha))));
                 c.drawText("•", getWidth() - dp(72), cy + dp(5), text);
                 text.setTextAlign(Paint.Align.LEFT);
             }
