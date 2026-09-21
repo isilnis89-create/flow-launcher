@@ -37,6 +37,10 @@ public final class LauncherView extends View {
         void requestCamera();
         void requestClock();
         void reorderFavorite(String key, int targetIndex);
+        void requestNotificationPeek(String packageName);
+        void requestFlowSettings();
+        void requestTidalAction(int action);
+        void openTidal();
         void requestLauncherSettings();
     }
 
@@ -57,6 +61,7 @@ public final class LauncherView extends View {
     private final Map<String, AppEntry> appIndex = new HashMap<>();
     private final Map<String, WebShortcut> shortcutIndex = new HashMap<>();
     private final Map<String, FavoriteOverride> favoriteOverrides = new HashMap<>();
+    private final Map<String, FlowNotificationInfo> notifications = new HashMap<>();
 
     private Callback callback;
     private final float density;
@@ -65,6 +70,8 @@ public final class LauncherView extends View {
     private String query = "";
     private float overlay = 0f;
     private ValueAnimator animator;
+    private ValueAnimator ambientAnimator;
+    private ValueAnimator letterAnimator;
     private int pressed = -1;
     private boolean homePressed;
     private boolean scrubbing;
@@ -78,7 +85,15 @@ public final class LauncherView extends View {
     private float dragY = -1f;
     private boolean dragMoved;
     private String dragFavoriteKey;
+    private TidalMediaState tidalState = TidalMediaState.empty();
+    private boolean ambientEnabled = true;
+    private float ambient = 0f;
+    private int favoriteDensity = 15;
+    private float letterTransition = 1f;
+    private boolean emptyLongPressArmed;
     private final Runnable longPressRunnable = this::fireLongPress;
+    private final Runnable emptyLongPressRunnable = this::fireEmptyLongPress;
+    private final Runnable ambientRunnable = this::enterAmbient;
 
     public LauncherView(Context context) {
         super(context);
@@ -91,12 +106,35 @@ public final class LauncherView extends View {
                 handler.postDelayed(this, 30000);
             }
         }, 30000);
+        scheduleAmbient();
     }
 
     public void setCallback(Callback callback) { this.callback = callback; }
 
     public void setAccentColor(int color) {
         accentColor = color;
+        invalidate();
+    }
+
+    public void setNotificationState(Map<String, FlowNotificationInfo> state, TidalMediaState tidal) {
+        notifications.clear();
+        if (state != null) notifications.putAll(state);
+        tidalState = tidal == null ? TidalMediaState.empty() : tidal;
+        invalidate();
+    }
+
+    public void setAmbientEnabled(boolean enabled) {
+        ambientEnabled = enabled;
+        if (!enabled) {
+            handler.removeCallbacks(ambientRunnable);
+            animateAmbient(0f);
+        } else {
+            wakeAmbient();
+        }
+    }
+
+    public void setFavoriteDensity(int density) {
+        favoriteDensity = Math.max(10, Math.min(18, density));
         invalidate();
     }
 
@@ -142,6 +180,8 @@ public final class LauncherView extends View {
     @Override protected void onDetachedFromWindow() {
         handler.removeCallbacksAndMessages(null);
         if (animator != null) animator.cancel();
+        if (ambientAnimator != null) ambientAnimator.cancel();
+        if (letterAnimator != null) letterAnimator.cancel();
         super.onDetachedFromWindow();
     }
 
@@ -156,12 +196,16 @@ public final class LauncherView extends View {
         }
 
         float homeAlpha = Math.max(0f, 1f - 1.35f * overlay);
+        float favoriteAlpha = homeAlpha * (1f - .30f * ambient);
+        float dockAlpha = homeAlpha * (1f - .88f * ambient);
+
         c.save();
         float homeScale = 1f - .018f * overlay;
         c.scale(homeScale, homeScale, getWidth() * .50f, getHeight() * .48f);
         drawClock(c, homeAlpha);
-        drawFavorites(c, homeAlpha);
-        drawBottom(c, homeAlpha);
+        drawFavorites(c, favoriteAlpha);
+        if (tidalState != null && tidalState.active) drawTidal(c, homeAlpha * (1f - .35f * ambient));
+        drawBottom(c, dockAlpha);
         c.restore();
 
         drawAlphabet(c);
