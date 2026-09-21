@@ -1,5 +1,7 @@
 package com.nick.flowlauncher;
 
+import android.app.WallpaperManager;
+import android.app.WallpaperColors;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -48,11 +50,13 @@ public final class LauncherRepository {
     private final Context context;
     private final SharedPreferences prefs;
     private final PackageManager pm;
+    private final int accentColor;
 
     public LauncherRepository(Context context) {
         this.context = context.getApplicationContext();
         this.prefs = this.context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         this.pm = this.context.getPackageManager();
+        this.accentColor = resolveAccentColor();
     }
 
     public List<AppEntry> loadApps() {
@@ -405,7 +409,7 @@ public final class LauncherRepository {
         int[] pixels = new int[w * h];
         source.getPixels(pixels, 0, w, 0, 0, w, h);
 
-        final int cool = Color.rgb(105, 225, 236);
+        final int cool = accentColor;
         final int light = Color.rgb(242, 250, 252);
 
         for (int i = 0; i < pixels.length; i++) {
@@ -452,6 +456,30 @@ public final class LauncherRepository {
         } catch (Throwable t) {
             return null;
         }
+    }
+
+    public int getAccentColor() {
+        return accentColor;
+    }
+
+    private int resolveAccentColor() {
+        int fallback = Color.rgb(108, 220, 214);
+        try {
+            if (Build.VERSION.SDK_INT >= 27) {
+                WallpaperManager wm = WallpaperManager.getInstance(context);
+                WallpaperColors colors = wm.getWallpaperColors(WallpaperManager.FLAG_SYSTEM);
+                if (colors != null && colors.getPrimaryColor() != null) {
+                    int base = colors.getPrimaryColor().toArgb();
+                    float[] hsv = new float[3];
+                    Color.colorToHSV(base, hsv);
+                    hsv[1] = Math.max(.38f, Math.min(.72f, hsv[1] * 1.25f));
+                    hsv[2] = Math.max(.72f, Math.min(.94f, hsv[2] * 1.08f));
+                    return Color.HSVToColor(hsv);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return fallback;
     }
 
     private int dp(float v) {
