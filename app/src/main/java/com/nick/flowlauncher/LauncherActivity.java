@@ -5,12 +5,15 @@ import android.app.AlertDialog;
 import android.app.role.RoleManager;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.Settings;
 import android.provider.AlarmClock;
 import android.provider.MediaStore;
@@ -60,6 +63,17 @@ public final class LauncherActivity extends Activity implements LauncherView.Cal
     private volatile boolean loading = false;
     private boolean firstResume = true;
     private TextView loadingView;
+    private final Handler stateHandler = new Handler(Looper.getMainLooper());
+    private final Runnable statePoller = new Runnable() {
+        @Override public void run() {
+            if (launcherView != null) {
+                launcherView.setNotificationState(
+                        FlowNotificationService.notificationSnapshot(),
+                        FlowNotificationService.tidalSnapshot());
+            }
+            stateHandler.postDelayed(this, 850);
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -75,6 +89,7 @@ public final class LauncherActivity extends Activity implements LauncherView.Cal
         repository = new LauncherRepository(this);
         buildUi();
         launcherView.setAccentColor(repository.getAccentColor());
+        applyViewPreferences();
         if (Build.VERSION.SDK_INT >= 33) {
             getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                     OnBackInvokedDispatcher.PRIORITY_DEFAULT,
@@ -82,15 +97,23 @@ public final class LauncherActivity extends Activity implements LauncherView.Cal
         }
         launcherView.postDelayed(this::reloadDataAsync, 250);
         launcherView.postDelayed(this::requestHomeRoleIfNeeded, 800);
+        launcherView.postDelayed(this::maybePromptNotificationAccess, 2600);
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        // onCreate already starts the initial load. Do not immediately scan every app twice.
+        stateHandler.removeCallbacks(statePoller);
+        stateHandler.post(statePoller);
         if (firstResume) {
             firstResume = false;
         }
+    }
+
+    @Override
+    protected void onPause() {
+        stateHandler.removeCallbacks(statePoller);
+        super.onPause();
     }
 
     @Override
@@ -102,6 +125,47 @@ public final class LauncherActivity extends Activity implements LauncherView.Cal
             closeSearch();
         } else if (launcherView != null) {
             launcherView.closeOverlay();
+        }
+    }
+
+    private SharedPreferences uiPrefs() {
+        return getSharedPreferences("flow_launcher_ui", MODE_PRIVATE);
+    }
+
+    private void applyViewPreferences() {
+        if (launcherView == null) return;
+        launcherView.setAmbientEnabled(uiPrefs().getBoolean("ambient_enabled", true));
+        launcherView.setFavoriteDensity(uiPrefs().getInt("favorite_density", 16));
+    }
+
+    private boolean hasNotificationAccess() {
+        try {
+            String enabled = Settings.Secure.getString(getContentResolver(), "enabled_notification_listeners");
+            return enabled != null && enabled.contains(getPackageName());
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private void maybePromptNotificationAccess() {
+        if (isFinishing() || isDestroyed() || !isDefaultHome()) return;
+        if (hasNotificationAccess()) return;
+        if (uiPrefs().getBoolean("notification_prompted", false)) return;
+
+        uiPrefs().edit().putBoolean("notification_prompted", true).apply();
+        new AlertDialog.Builder(this)
+                .setTitle("Enable Flow peeks & Tidal")
+                .setMessage("Notification access lets Flow show unread indicators, swipe-to-peek notifications, and the Tidal now-playing controls. Flow does not send this data anywhere.")
+                .setNegativeButton("Later", null)
+                .setPositiveButton("Enable", (dialog, which) -> openNotificationAccessSettings())
+                .show();
+    }
+
+    private void openNotificationAccessSettings() {
+        try {
+            startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS));
+        } catch (Throwable t) {
+            Toast.makeText(this, "Open Settings > Notifications > Notification access", Toast.LENGTH_LONG).show();
         }
     }
 
@@ -156,6 +220,7 @@ public final class LauncherActivity extends Activity implements LauncherView.Cal
 
     @Override
     protected void onDestroy() {
+        stateHandler.removeCallbacksAndMessages(null);
         loader.shutdownNow();
         super.onDestroy();
     }
