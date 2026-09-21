@@ -35,6 +35,8 @@ public final class LauncherView extends View {
         void requestSearch();
         void requestPhone();
         void requestCamera();
+        void requestClock();
+        void reorderFavorite(String key, int targetIndex);
         void requestLauncherSettings();
     }
 
@@ -69,6 +71,13 @@ public final class LauncherView extends View {
     private boolean longPressed;
     private float downX, downY;
     private float drawerAnchorY = -1f;
+    private int accentColor = Color.rgb(108, 220, 214);
+    private boolean draggingFavorite;
+    private int dragStartIndex = -1;
+    private int dragTargetIndex = -1;
+    private float dragY = -1f;
+    private boolean dragMoved;
+    private String dragFavoriteKey;
     private final Runnable longPressRunnable = this::fireLongPress;
 
     public LauncherView(Context context) {
@@ -85,6 +94,11 @@ public final class LauncherView extends View {
     }
 
     public void setCallback(Callback callback) { this.callback = callback; }
+
+    public void setAccentColor(int color) {
+        accentColor = color;
+        invalidate();
+    }
 
     public void setData(List<AppEntry> newApps, List<WebShortcut> newShortcuts,
                         List<String> keys, Map<String, FavoriteOverride> overrides) {
@@ -141,27 +155,60 @@ public final class LauncherView extends View {
             c.drawRect(0, 0, getWidth(), getHeight(), paint);
         }
 
-        drawClock(c);
         float homeAlpha = Math.max(0f, 1f - 1.35f * overlay);
+        c.save();
+        float homeScale = 1f - .018f * overlay;
+        c.scale(homeScale, homeScale, getWidth() * .50f, getHeight() * .48f);
+        drawClock(c, homeAlpha);
         drawFavorites(c, homeAlpha);
         drawBottom(c, homeAlpha);
+        c.restore();
+
         drawAlphabet(c);
         if (overlay > .001f && mode != HOME) drawApps(c);
     }
 
-    private void drawClock(Canvas c) {
+    private void drawClock(Canvas c, float a) {
         Calendar now = Calendar.getInstance();
-        String time = new SimpleDateFormat("HH:mm", Locale.getDefault()).format(now.getTime());
-        String date = new SimpleDateFormat("EEEE, d MMMM", Locale.getDefault()).format(now.getTime());
+        String hh = new SimpleDateFormat("HH", Locale.getDefault()).format(now.getTime());
+        String mm = new SimpleDateFormat("mm", Locale.getDefault()).format(now.getTime());
+        String day = new SimpleDateFormat("EEE", Locale.getDefault()).format(now.getTime()).toUpperCase(Locale.getDefault());
+        String date = new SimpleDateFormat("dd MMM", Locale.getDefault()).format(now.getTime()).toUpperCase(Locale.getDefault());
+
+        float alpha = Math.max(0f, Math.min(1f, a));
+        float left = dp(25);
+        float top = dp(43);
+
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(alpha(accentColor, clamp((int)(220 * alpha))));
+        c.drawRect(left, top, left + dp(2.5f), top + dp(65), paint);
+
         text.setTypeface(android.graphics.Typeface.create("sans-serif-thin", 0));
-        text.setTextSize(sp(39));
-        text.setColor(Color.WHITE);
-        text.setShadowLayer(dp(7), 0, dp(2), 0x66000000);
-        c.drawText(time, dp(26), dp(74), text);
-        text.setTextSize(sp(15));
-        text.setColor(0xE6FFFFFF);
-        c.drawText(date, dp(28), dp(99), text);
+        text.setTextSize(sp(42));
+        text.setColor(alpha(Color.WHITE, clamp((int)(250 * alpha))));
+        text.setShadowLayer(dp(5), 0, dp(2), 0x55000000);
+        c.drawText(hh, left + dp(14), dp(82), text);
+
+        text.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", 0));
+        text.setTextSize(sp(18));
+        text.setColor(alpha(accentColor, clamp((int)(240 * alpha))));
+        c.drawText(":", left + dp(67), dp(79), text);
+
+        text.setTypeface(android.graphics.Typeface.create("sans-serif-thin", 0));
+        text.setTextSize(sp(42));
+        text.setColor(alpha(Color.WHITE, clamp((int)(250 * alpha))));
+        c.drawText(mm, left + dp(79), dp(82), text);
         text.clearShadowLayer();
+
+        text.setTypeface(android.graphics.Typeface.create("sans-serif-condensed", 0));
+        text.setTextSize(sp(10.5f));
+        text.setColor(alpha(Color.WHITE, clamp((int)(165 * alpha))));
+        c.drawText("LOCAL / " + day + " / " + date, left + dp(15), dp(105), text);
+
+        paint.setColor(alpha(Color.WHITE, clamp((int)(52 * alpha))));
+        c.drawRect(left + dp(15), dp(112), left + dp(145), dp(113), paint);
+        paint.setColor(alpha(accentColor, clamp((int)(185 * alpha))));
+        c.drawRect(left + dp(15), dp(112), left + dp(48), dp(113), paint);
     }
 
     private void drawFavorites(Canvas c, float a) {
