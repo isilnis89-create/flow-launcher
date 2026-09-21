@@ -46,6 +46,10 @@ public final class LauncherRepository {
     private static final String KEY_FAVORITES = "favorites";
     private static final String KEY_SHORTCUTS = "shortcuts";
     private static final String KEY_FAVORITE_META = "favorite_meta";
+    private static final String KEY_ICON_STYLE = "icon_style";
+    public static final int ICON_FLOW = 0;
+    public static final int ICON_MONO = 1;
+    public static final int ICON_ORIGINAL = 2;
 
     private final Context context;
     private final SharedPreferences prefs;
@@ -331,6 +335,8 @@ public final class LauncherRepository {
 
     private Bitmap minimalIcon(Drawable drawable, int size) {
         if (drawable == null) return null;
+        int style = getIconStyle();
+        if (style == ICON_ORIGINAL) return drawableToBitmap(drawable, size);
         try {
             Bitmap out = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
             Canvas canvas = new Canvas(out);
@@ -379,7 +385,7 @@ public final class LauncherRepository {
 
             if (trueMonochrome) {
                 Drawable mono = glyph.mutate();
-                mono.setTint(0xFFF1FCFF);
+                mono.setTint(style == ICON_MONO ? Color.WHITE : 0xFFF1FCFF);
                 mono.setBounds(left, top, left + glyphSize, top + glyphSize);
 
                 Paint glow = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -388,7 +394,7 @@ public final class LauncherRepository {
                 mono.draw(canvas);
             } else {
                 Bitmap raw = drawableToBitmap(glyph, glyphSize);
-                Bitmap duo = makeDuotone(raw);
+                Bitmap duo = style == ICON_MONO ? makeMonochrome(raw) : makeDuotone(raw);
                 if (duo != null) {
                     Paint p = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
                     canvas.drawBitmap(duo, left, top, p);
@@ -399,6 +405,38 @@ public final class LauncherRepository {
         } catch (Throwable t) {
             return drawableToBitmap(drawable, size);
         }
+    }
+
+    public int getIconStyle() {
+        return prefs.getInt(KEY_ICON_STYLE, ICON_FLOW);
+    }
+
+    public void setIconStyle(int style) {
+        prefs.edit().putInt(KEY_ICON_STYLE, Math.max(ICON_FLOW, Math.min(ICON_ORIGINAL, style))).apply();
+    }
+
+    private Bitmap makeMonochrome(Bitmap source) {
+        if (source == null) return null;
+        int w = source.getWidth();
+        int h = source.getHeight();
+        int[] pixels = new int[w * h];
+        source.getPixels(pixels, 0, w, 0, 0, w, h);
+        for (int i = 0; i < pixels.length; i++) {
+            int p = pixels[i];
+            int a = Color.alpha(p);
+            if (a < 18) {
+                pixels[i] = Color.TRANSPARENT;
+                continue;
+            }
+            int r = Color.red(p), g = Color.green(p), b = Color.blue(p);
+            int luminance = (r * 54 + g * 183 + b * 19) >> 8;
+            int outAlpha = Math.min(248, Math.max(70, a));
+            int white = Math.max(205, Math.min(255, 208 + luminance / 6));
+            pixels[i] = Color.argb(outAlpha, white, white, white);
+        }
+        Bitmap result = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        result.setPixels(pixels, 0, w, 0, 0, w, h);
+        return result;
     }
 
     private Bitmap makeDuotone(Bitmap source) {
