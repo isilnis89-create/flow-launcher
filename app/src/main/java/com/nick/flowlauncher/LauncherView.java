@@ -680,10 +680,12 @@ public final class LauncherView extends View {
 
         switch (e.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
+                wakeAmbient();
                 downX = x;
                 downY = y;
                 longPressed = false;
                 dragMoved = false;
+                emptyLongPressArmed = false;
 
                 if (inAlphabet(x, y)) {
                     scrubbing = true;
@@ -698,7 +700,12 @@ public final class LauncherView extends View {
                         return true;
                     }
 
-                    if (pressed >= 0) handler.postDelayed(longPressRunnable, 520);
+                    if (pressed >= 0) {
+                        handler.postDelayed(longPressRunnable, 520);
+                    } else if (mode == HOME && !inClock(x, y) && !inDock(x, y) && !inTidalStrip(x, y)) {
+                        emptyLongPressArmed = true;
+                        handler.postDelayed(emptyLongPressRunnable, 650);
+                    }
                 }
 
                 invalidate();
@@ -727,6 +734,28 @@ public final class LauncherView extends View {
 
                 if (distance(downX, downY, x, y) > dp(12)) {
                     handler.removeCallbacks(longPressRunnable);
+                    handler.removeCallbacks(emptyLongPressRunnable);
+                    emptyLongPressArmed = false;
+
+                    float dx = x - downX;
+                    float dy = y - downY;
+
+                    if (mode == HOME && homePressed && !longPressed
+                            && Math.abs(dx) > dp(58) && Math.abs(dx) > Math.abs(dy) * 1.25f
+                            && pressed >= 0 && pressed < favorites.size()) {
+                        FavoriteItem item = favorites.get(pressed);
+                        if (item.app != null) {
+                            String pkg = item.app.component.getPackageName();
+                            FlowNotificationInfo info = notifications.get(pkg);
+                            if (info != null && info.count > 0 && callback != null) {
+                                longPressed = true;
+                                performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+                                callback.requestNotificationPeek(pkg);
+                                pressed = -1;
+                                return true;
+                            }
+                        }
+                    }
 
                     if (downY - y > dp(74) && mode == HOME && callback != null && !longPressed) {
                         longPressed = true;
@@ -738,6 +767,8 @@ public final class LauncherView extends View {
 
             case MotionEvent.ACTION_UP:
                 handler.removeCallbacks(longPressRunnable);
+                handler.removeCallbacks(emptyLongPressRunnable);
+                emptyLongPressArmed = false;
 
                 if (scrubbing) {
                     scrubbing = false;
@@ -756,8 +787,15 @@ public final class LauncherView extends View {
                         return true;
                     }
 
+                    if (handleTidal(x, y)) {
+                        clearPress();
+                        scheduleAmbient();
+                        return true;
+                    }
+
                     if (handleBottom(x, y)) {
                         clearPress();
+                        scheduleAmbient();
                         return true;
                     }
 
@@ -765,10 +803,13 @@ public final class LauncherView extends View {
                 }
 
                 clearPress();
+                scheduleAmbient();
                 return true;
 
             case MotionEvent.ACTION_CANCEL:
                 handler.removeCallbacks(longPressRunnable);
+                handler.removeCallbacks(emptyLongPressRunnable);
+                emptyLongPressArmed = false;
                 scrubbing = false;
                 cancelFavoriteDrag();
                 clearPress();
@@ -887,6 +928,71 @@ public final class LauncherView extends View {
         dragMoved = false;
     }
 
+    private void fireEmptyLongPress() {
+        if (!emptyLongPressArmed || mode != HOME || callback == null) return;
+        emptyLongPressArmed = false;
+        longPressed = true;
+        performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+        callback.requestFlowSettings();
+    }
+
+    private void scheduleAmbient() {
+        handler.removeCallbacks(ambientRunnable);
+        if (ambientEnabled && mode == HOME && !draggingFavorite) {
+            handler.postDelayed(ambientRunnable, 8500);
+        }
+    }
+
+    private void wakeAmbient() {
+        handler.removeCallbacks(ambientRunnable);
+        if (ambient > .001f) animateAmbient(0f);
+    }
+
+    private void enterAmbient() {
+        if (ambientEnabled && mode == HOME && !draggingFavorite) animateAmbient(1f);
+    }
+
+    private void animateAmbient(float target) {
+        if (ambientAnimator != null) ambientAnimator.cancel();
+        ambientAnimator = ValueAnimator.ofFloat(ambient, target);
+        ambientAnimator.setDuration(target > ambient ? 700 : 180);
+        ambientAnimator.setInterpolator(ease);
+        ambientAnimator.addUpdateListener(a -> {
+            ambient = (float)a.getAnimatedValue();
+            invalidate();
+        });
+        ambientAnimator.start();
+    }
+
+    private boolean handleTidal(float x, float y) {
+        if (mode != HOME || tidalState == null || !tidalState.active || callback == null) return false;
+        float top = getHeight() - dp(122);
+        float bottom = getHeight() - dp(88);
+        if (y < top - dp(6) || y > bottom + dp(6)) return false;
+
+        float right = getWidth() - dp(20);
+        float controlsLeft = right - dp(102);
+        if (x < controlsLeft) {
+            callback.openTidal();
+            return true;
+        }
+
+        float relative = x - controlsLeft;
+        if (relative < dp(34)) callback.requestTidalAction(FlowNotificationService.MEDIA_PREVIOUS);
+        else if (relative < dp(69)) callback.requestTidalAction(FlowNotificationService.MEDIA_PLAY_PAUSE);
+        else callback.requestTidalAction(FlowNotificationService.MEDIA_NEXT);
+        return true;
+    }
+
+    private boolean inTidalStrip(float x, float y) {
+        if (tidalState == null || !tidalState.active) return false;
+        return y >= getHeight() - dp(130) && y <= getHeight() - dp(82);
+    }
+
+    private boolean inDock(float x, float y) {
+        return y >= getHeight() - dp(92);
+    }
+
     private boolean handleBottom(float x, float y) {
         if (mode != HOME || y < getHeight() - dp(110) || callback == null) return false;
 
@@ -905,6 +1011,7 @@ public final class LauncherView extends View {
     }
 
     private void selectLetter(float y, boolean initial) {
+        wakeAmbient();
         char old = activeLetter;
         drawerAnchorY = Math.max(dp(135), Math.min(getHeight() - dp(135), y));
         float t = Math.max(0f, Math.min(1f, (y - alphabetTop()) / Math.max(1f, alphabetBottom() - alphabetTop())));
@@ -912,7 +1019,10 @@ public final class LauncherView extends View {
         mode = LETTER;
         refreshVisible();
         if (initial) animateOverlay(true);
-        if (old != activeLetter || initial) performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+        if (old != activeLetter || initial) {
+            animateLetterTransition();
+            performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+        }
         invalidate();
     }
 
@@ -923,6 +1033,19 @@ public final class LauncherView extends View {
         animator.setInterpolator(ease);
         animator.addUpdateListener(a -> { overlay = (float)a.getAnimatedValue(); invalidate(); });
         animator.start();
+    }
+
+    private void animateLetterTransition() {
+        if (letterAnimator != null) letterAnimator.cancel();
+        letterTransition = 0f;
+        letterAnimator = ValueAnimator.ofFloat(0f, 1f);
+        letterAnimator.setDuration(105);
+        letterAnimator.setInterpolator(ease);
+        letterAnimator.addUpdateListener(a -> {
+            letterTransition = (float)a.getAnimatedValue();
+            invalidate();
+        });
+        letterAnimator.start();
     }
 
     private void refreshVisible() {
@@ -966,8 +1089,9 @@ public final class LauncherView extends View {
     private float homeStart() { return Math.max(dp(120), getHeight() * .165f); }
 
     private float homeRowHeight() {
-        float available = Math.max(dp(140), getHeight() - homeStart() - dp(84));
-        int desired = Math.max(1, Math.min(favorites.size(), 15));
+        float reserve = tidalState != null && tidalState.active ? dp(128) : dp(84);
+        float available = Math.max(dp(140), getHeight() - homeStart() - reserve);
+        int desired = Math.max(1, Math.min(favorites.size(), favoriteDensity));
         float fit = available / desired;
         return Math.max(dp(31), Math.min(dp(47), fit));
     }
@@ -975,7 +1099,8 @@ public final class LauncherView extends View {
     private float overlayRowHeight() { return dp(64); }
 
     private int maxHomeRows() {
-        float available = Math.max(dp(140), getHeight() - homeStart() - dp(84));
+        float reserve = tidalState != null && tidalState.active ? dp(128) : dp(84);
+        float available = Math.max(dp(140), getHeight() - homeStart() - reserve);
         return Math.max(3, (int)(available / homeRowHeight()));
     }
     private int maxOverlayRows() { return Math.max(4, (int)((getHeight() - dp(246)) / overlayRowHeight())); }
