@@ -544,45 +544,104 @@ public final class LauncherView extends View {
 
     @Override public boolean onTouchEvent(MotionEvent e) {
         float x = e.getX(), y = e.getY();
+
         switch (e.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
-                downX = x; downY = y; longPressed = false;
+                downX = x;
+                downY = y;
+                longPressed = false;
+                dragMoved = false;
+
                 if (inAlphabet(x, y)) {
-                    scrubbing = true; pressed = -1; selectLetter(y, true);
+                    scrubbing = true;
+                    pressed = -1;
+                    selectLetter(y, true);
                 } else {
                     scrubbing = false;
                     findPressed(y);
-                    // When the app/letter overlay is open, tapping empty space dismisses it.
+
                     if (mode != HOME && pressed < 0) {
                         closeOverlay();
                         return true;
                     }
+
                     if (pressed >= 0) handler.postDelayed(longPressRunnable, 520);
                 }
+
                 invalidate();
                 return true;
+
             case MotionEvent.ACTION_MOVE:
-                if (scrubbing) { selectLetter(y, false); return true; }
+                if (scrubbing) {
+                    selectLetter(y, false);
+                    return true;
+                }
+
+                if (draggingFavorite) {
+                    dragY = Math.max(homeStart(), Math.min(getHeight() - dp(92), y));
+                    float row = homeRowHeight();
+                    int visibleCount = Math.min(favorites.size(), maxHomeRows());
+                    int target = Math.round((dragY - homeStart()) / row);
+                    target = Math.max(0, Math.min(Math.max(0, visibleCount - 1), target));
+                    if (target != dragTargetIndex) {
+                        dragTargetIndex = target;
+                        dragMoved = dragTargetIndex != dragStartIndex;
+                        performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+                    }
+                    invalidate();
+                    return true;
+                }
+
                 if (distance(downX, downY, x, y) > dp(12)) {
                     handler.removeCallbacks(longPressRunnable);
+
                     if (downY - y > dp(74) && mode == HOME && callback != null && !longPressed) {
-                        longPressed = true; pressed = -1; callback.requestSearch();
+                        longPressed = true;
+                        pressed = -1;
+                        callback.requestSearch();
                     }
                 }
                 return true;
+
             case MotionEvent.ACTION_UP:
                 handler.removeCallbacks(longPressRunnable);
-                if (scrubbing) { scrubbing = false; return true; }
+
+                if (scrubbing) {
+                    scrubbing = false;
+                    return true;
+                }
+
+                if (draggingFavorite) {
+                    finishFavoriteDrag();
+                    return true;
+                }
+
                 if (!longPressed && distance(downX, downY, x, y) < dp(18)) {
-                    if (handleBottom(x, y)) { clearPress(); return true; }
+                    if (mode == HOME && inClock(x, y) && callback != null) {
+                        callback.requestClock();
+                        clearPress();
+                        return true;
+                    }
+
+                    if (handleBottom(x, y)) {
+                        clearPress();
+                        return true;
+                    }
+
                     activate();
                 }
+
                 clearPress();
                 return true;
+
             case MotionEvent.ACTION_CANCEL:
                 handler.removeCallbacks(longPressRunnable);
-                scrubbing = false; clearPress(); return true;
+                scrubbing = false;
+                cancelFavoriteDrag();
+                clearPress();
+                return true;
         }
+
         return true;
     }
 
@@ -635,13 +694,64 @@ public final class LauncherView extends View {
         if (pressed < 0 || callback == null) return;
         longPressed = true;
         performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+
         if (homePressed) {
             if (pressed >= favorites.size()) return;
-            FavoriteItem item = favorites.get(pressed);
-            if (item.app != null) callback.editFavorite(item.app);
-            else callback.removeShortcut(item.shortcut);
-        } else if (pressed < visibleApps.size()) callback.toggleFavorite(visibleApps.get(pressed));
-        clearPress();
+
+            draggingFavorite = true;
+            dragStartIndex = pressed;
+            dragTargetIndex = pressed;
+            dragY = homeStart() + pressed * homeRowHeight();
+            dragMoved = false;
+            dragFavoriteKey = favorites.get(pressed).key();
+            invalidate();
+            return;
+        }
+
+        if (pressed < visibleApps.size()) {
+            callback.toggleFavorite(visibleApps.get(pressed));
+            clearPress();
+        }
+    }
+
+    private void finishFavoriteDrag() {
+        if (!draggingFavorite || dragStartIndex < 0 || dragStartIndex >= favorites.size()) {
+            cancelFavoriteDrag();
+            return;
+        }
+
+        FavoriteItem item = favorites.get(dragStartIndex);
+        int start = dragStartIndex;
+        int target = dragTargetIndex;
+        boolean moved = dragMoved && target >= 0 && target != start;
+        String key = dragFavoriteKey;
+
+        draggingFavorite = false;
+        dragStartIndex = -1;
+        dragTargetIndex = -1;
+        dragY = -1f;
+        dragFavoriteKey = null;
+        pressed = -1;
+        homePressed = false;
+        longPressed = false;
+        invalidate();
+
+        if (moved && key != null) {
+            callback.reorderFavorite(key, target);
+        } else if (item.app != null) {
+            callback.editFavorite(item.app);
+        } else {
+            callback.removeShortcut(item.shortcut);
+        }
+    }
+
+    private void cancelFavoriteDrag() {
+        draggingFavorite = false;
+        dragStartIndex = -1;
+        dragTargetIndex = -1;
+        dragY = -1f;
+        dragFavoriteKey = null;
+        dragMoved = false;
     }
 
     private boolean handleBottom(float x, float y) {
@@ -707,24 +817,32 @@ public final class LauncherView extends View {
         }
     }
 
-    private void clearPress() { pressed = -1; homePressed = false; invalidate(); }
+    private void clearPress() {
+        pressed = -1;
+        homePressed = false;
+        invalidate();
+    }
+
+    private boolean inClock(float x, float y) {
+        return x >= dp(16) && x <= dp(220) && y >= dp(22) && y <= dp(122);
+    }
     private boolean inAlphabet(float x, float y) { return x > getWidth() - dp(52) && y >= alphabetTop() - dp(20) && y <= alphabetBottom() + dp(20); }
     private float alphabetTop() { return dp(124); }
-    private float alphabetBottom() { return Math.max(dp(400), getHeight() - dp(128)); }
+    private float alphabetBottom() { return Math.max(dp(400), getHeight() - dp(104)); }
     private float yForLetter(char c) { return alphabetTop() + (alphabetBottom() - alphabetTop()) * Math.max(0, LETTERS.indexOf(c)) / 25f; }
-    private float homeStart() { return Math.max(dp(130), getHeight() * .205f); }
+    private float homeStart() { return Math.max(dp(120), getHeight() * .165f); }
 
     private float homeRowHeight() {
-        float available = Math.max(dp(120), getHeight() - homeStart() - dp(96));
-        int desired = Math.max(1, Math.min(favorites.size(), 12));
+        float available = Math.max(dp(140), getHeight() - homeStart() - dp(84));
+        int desired = Math.max(1, Math.min(favorites.size(), 15));
         float fit = available / desired;
-        return Math.max(dp(35), Math.min(dp(52), fit));
+        return Math.max(dp(31), Math.min(dp(47), fit));
     }
 
     private float overlayRowHeight() { return dp(64); }
 
     private int maxHomeRows() {
-        float available = Math.max(dp(120), getHeight() - homeStart() - dp(96));
+        float available = Math.max(dp(140), getHeight() - homeStart() - dp(84));
         return Math.max(3, (int)(available / homeRowHeight()));
     }
     private int maxOverlayRows() { return Math.max(4, (int)((getHeight() - dp(246)) / overlayRowHeight())); }
@@ -739,5 +857,6 @@ public final class LauncherView extends View {
         final AppEntry app; final WebShortcut shortcut;
         FavoriteItem(AppEntry a){ app=a; shortcut=null; }
         FavoriteItem(WebShortcut s){ app=null; shortcut=s; }
+        String key(){ return app != null ? app.key() : shortcut.key(); }
     }
 }
